@@ -1,0 +1,46 @@
+name: Mise toolchain
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mise_toolchain.yml
+      - mise.toml
+      - mise.lock
+      - .trunk/trunk.yaml
+      - Makefile
+      - dev/setup-tools.sh
+      - dev/codeql-platform.sh
+      - dev/test-mise-toolchain.sh
+      - dev/codeql.sh
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/mise_toolchain.yml
+      - mise.toml
+      - mise.lock
+      - .trunk/trunk.yaml
+      - Makefile
+      - dev/setup-tools.sh
+      - dev/codeql-platform.sh
+      - dev/test-mise-toolchain.sh
+
+jobs:
+  mise-toolchain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      - name: Smoke test mise integration
+        run: bash ./dev/test-mise-toolchain.sh
+
+      - name: Verify Makefile delegates to mise run (no wrapper script)
+        run: |
+          test ! -e dev/mise-exec.sh
+          grep -q 'mise run lint' Makefile
+          ! grep -q '^MISE_EXEC' Makefile

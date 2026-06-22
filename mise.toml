@@ -1,0 +1,66 @@
+# Toolchain managed by mise (https://mise.jdx.dev/).
+# Versions use "latest" with minimum_release_age; committed mise.lock pins resolved releases.
+#
+# Install: mise install --locked  (or: make setup-tools)
+# Run: mise run <task>  (or: make lint, make scan-vulnerabilities, etc.)
+# Refresh: mise lock && git add mise.lock
+
+[settings]
+minimum_release_age = "7d"
+lockfile = true
+
+# Disabled when Sigstore/TUF or GitHub attestations are unreachable (e.g. restricted CI).
+# Checksums in mise.lock still pin downloads; re-enable when your network supports verification.
+[settings.aqua]
+cosign = false
+slsa = false
+
+[settings.github]
+github_attestations = false
+
+# Installed by `mise install --locked`; tasks use per-task `tools` for scoped activation.
+[tools]
+trunk = "latest"
+trivy = "0.71.0"
+"osv-scanner" = "latest"
+grype = "latest"
+codeql = "latest"
+
+[tasks.lint]
+description = "Run Trunk on all files"
+tools.trunk = "latest"
+run = "trunk check -a"
+
+[tasks.format-trunk]
+description = "Format sources with Trunk"
+tools.trunk = "latest"
+run = "trunk fmt -a"
+
+[tasks.trunk-install]
+description = "Install Trunk-managed linters (run after mise install)"
+tools.trunk = "latest"
+run = "trunk install"
+
+[tasks.scan-trivy]
+description = "Trivy filesystem vulnerability scan"
+tools.trivy = "latest"
+run = "trivy fs ."
+
+[tasks.scan-osv]
+description = "OSV-Scanner recursive lockfile scan"
+tools = { "osv-scanner" = "latest" }
+run = "osv-scanner scan -r ."
+
+[tasks.scan-grype]
+description = "Grype filesystem vulnerability scan"
+tools.grype = "latest"
+run = "grype ."
+
+[tasks.scan-vulnerabilities]
+description = "Trivy, OSV-Scanner, and Grype scans (serial; OSV exits 1 when vulns are found)"
+run = "mise run scan-trivy && mise run scan-osv && mise run scan-grype"
+
+[tasks.codeql]
+description = "Local CodeQL analysis (Python security-and-quality)"
+tools.codeql = "latest"
+run = "bash ./dev/codeql.sh"
