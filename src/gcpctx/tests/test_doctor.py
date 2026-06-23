@@ -15,14 +15,18 @@
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 
-from gcpctx import paths
-from gcpctx.approvals import add_approval
+from gcpctx import __version__, paths
+from gcpctx.approvals import add_approval, load_store, save_store
 from gcpctx.context_id import ContextIdInput, derive_context_id
 from gcpctx.doctor import run_doctor
+from gcpctx.exit_codes import ExitCode
+from gcpctx.models import ApprovalRecord
 from gcpctx.paths import cloudsdk_config_dir
 from gcpctx.project_context import resolve_project_context
 
@@ -50,16 +54,21 @@ def test_doctor_happy_path(
 
     result = run_doctor(project_tree, interactive=False)
 
-    names = {check.name for check in result.checks}
-    assert "config" in names
-    assert "profile" in names
-    assert "approval" in names
-    assert "expected_context" in names
-    assert "ambient_cloudsdk" in names
-    config_check = next(c for c in result.checks if c.name == "config")
-    ambient_check = next(c for c in result.checks if c.name == "ambient_cloudsdk")
-    assert config_check.status == "ok"
-    assert ambient_check.status == "ok"
+    ids = {check.id for check in result.checks}
+    assert "config" in ids
+    assert "profile" in ids
+    assert "approval" in ids
+    assert "approval_expiry" in ids
+    assert "expected_context" in ids
+    assert "ambient_cloudsdk" in ids
+    config_check = next(c for c in result.checks if c.id == "config")
+    ambient_check = next(c for c in result.checks if c.id == "ambient_cloudsdk")
+    assert config_check.status == "pass"
+    assert ambient_check.status == "pass"
+    assert result.version == __version__
+    assert result.status == "ok"
+    assert result.profile == ctx.profile_name
+    assert result.context_id == ctx.context_id()
 
 
 @pytest.mark.usefixtures("fake_gcloud")
@@ -76,9 +85,11 @@ def test_doctor_ambient_cloudsdk_error_when_not_under_cache(
 
     result = run_doctor(project_tree, interactive=False)
 
-    ambient_check = next(c for c in result.checks if c.name == "ambient_cloudsdk")
-    assert ambient_check.status == "error"
+    ambient_check = next(c for c in result.checks if c.id == "ambient_cloudsdk")
+    assert ambient_check.status == "fail"
     assert "not under gcpctx cache" in ambient_check.message
+    assert ambient_check.remediation is not None
+    assert ambient_check.remediation.docs is not None
 
 
 @pytest.mark.usefixtures("fake_gcloud")
@@ -108,8 +119,8 @@ def test_doctor_strict_fails_when_ambient_points_to_stale_context(
 
     result = run_doctor(project_tree, interactive=False, strict=True)
 
-    ambient_check = next(c for c in result.checks if c.name == "ambient_cloudsdk")
-    assert ambient_check.status == "error"
+    ambient_check = next(c for c in result.checks if c.id == "ambient_cloudsdk")
+    assert ambient_check.status == "fail"
     assert result.exit_code != 0
 
 
@@ -127,8 +138,8 @@ def test_doctor_strict_rejects_approval_without_gcloud_binding(
 
     result = run_doctor(project_tree, interactive=False, strict=True)
 
-    approval_check = next(c for c in result.checks if c.name == "approval")
-    assert approval_check.status == "error"
+    approval_check = next(c for c in result.checks if c.id == "approval")
+    assert approval_check.status == "fail"
 
 
 @pytest.mark.usefixtures("fake_gcloud")
@@ -140,6 +151,121 @@ def test_doctor_reports_invalid_policy(project_tree: Path) -> None:
 
     result = run_doctor(project_tree, interactive=False)
 
-    policy_check = next(c for c in result.checks if c.name == "policy")
-    assert policy_check.status == "error"
-    assert result.exit_code == 7
+    policy_check = next(c for c in result.checks if c.id == "policy")
+    assert policy_check.status == "fail"
+    assert result.exit_code == int(ExitCode.POLICY_VIOLATION)
+
+
+@pytest.mark.usefixtures("fake_gcloud")
+def test_doctor_reports_expired_approval(
+    project_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered")
+    store = load_store()
+    expired_at = (datetime.now(tz=UTC) - timedelta(days=1)).isoformat()
+    store.approvals = [
+        ApprovalRecord(
+            root=str(ctx.root.resolve()),
+            profile=ctx.profile_name,
+            project=ctx.project,
+            service_account=ctx.service_account,
+            config_sha256=ctx.config_sha256,
+            approved_at=datetime.now(tz=UTC).isoformat(),
+            mode="remembered",
+            expires_at=expired_at,
+        )
+    ]
+    save_store(store)
+    isolated = ctx.expected_cloudsdk_config()
+    isolated.mkdir(parents=True)
+    (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
+
+    result = run_doctor(project_tree, interactive=False)
+
+    expiry_check = next(c for c in result.checks if c.id == "approval_expiry")
+    assert expiry_check.status == "fail"
+    assert expiry_check.evidence.get("expires_at") == expired_at
+    assert result.exit_code == int(ExitCode.APPROVAL_REQUIRED)
+
+
+@pytest.mark.usefixtures("fake_gcloud")
+def test_doctor_json_contract_shape(project_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered")
+    isolated = ctx.expected_cloudsdk_config()
+    isolated.mkdir(parents=True)
+    (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
+
+    result = run_doctor(project_tree, interactive=False)
+    payload = json.loads(result.model_dump_json())
+
+    assert set(payload) >= {"version", "status", "profile", "context_id", "exit_code", "checks"}
+    assert payload["version"] == __version__
+    for check in payload["checks"]:
+        assert set(check) >= {"id", "severity", "status", "message", "evidence", "remediation"}
+        if check["status"] == "fail":
+            assert check["remediation"] is not None
+            assert check["remediation"].get("docs")
+
+
+@pytest.mark.usefixtures("fake_gcloud")
+def test_doctor_settings_warning_non_interactive_does_not_fail(
+    project_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings_path = paths.user_config_path() / "settings.toml"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text('version = 1\ngcloud_path = "/usr/bin/gcloud"\n', encoding="utf-8")
+    settings_path.chmod(0o600)
+
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered")
+    isolated = ctx.expected_cloudsdk_config()
+    isolated.mkdir(parents=True)
+    (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
+
+    result = run_doctor(project_tree, interactive=False)
+
+    settings_check = next(c for c in result.checks if c.id == "settings")
+    assert settings_check.status == "warn"
+    assert result.exit_code == 0
+    assert result.status == "warn"
+
+
+@pytest.mark.usefixtures("fake_gcloud")
+def test_doctor_approval_expiry_ok_when_valid_once_approval_exists(
+    project_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = resolve_project_context(project_tree)
+    once = add_approval(ctx, mode="once")
+    store = load_store()
+    expired_at = (datetime.now(tz=UTC) - timedelta(days=1)).isoformat()
+    store.approvals.append(
+        ApprovalRecord(
+            root=once.root,
+            profile=once.profile,
+            project=once.project,
+            service_account=once.service_account,
+            config_sha256=once.config_sha256,
+            approved_at=(datetime.now(tz=UTC).isoformat()),
+            mode="remembered",
+            expires_at=expired_at,
+        )
+    )
+    save_store(store)
+    isolated = ctx.expected_cloudsdk_config()
+    isolated.mkdir(parents=True)
+    (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
+
+    result = run_doctor(project_tree, interactive=False)
+
+    expiry_check = next(c for c in result.checks if c.id == "approval_expiry")
+    assert expiry_check.status == "pass"
+    assert "Valid approval is active" in expiry_check.message

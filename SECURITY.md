@@ -2,7 +2,7 @@
 
 ## Supported platforms
 
-gcpctx **v0.2** provides its security guarantees on **POSIX systems only** (Linux and macOS). Windows is **not supported**; the CLI fails closed on `win32` until filesystem ACL checks are implemented.
+gcpctx **v0.3** provides its security guarantees on **POSIX systems only** (Linux and macOS). Windows is **not supported**; the CLI fails closed on `win32` (exit **10**) until filesystem ACL checks are implemented.
 
 Shell integration targets **bash** and **zsh**.
 
@@ -30,12 +30,28 @@ Shell integration targets **bash** and **zsh**.
 
 gcpctx does not replace Google IAM design, repository branch protection, endpoint MDM, or org-wide PAM. Use IAM Conditions, audit logs, and workstation policy alongside this tool.
 
-## v0.2 acceptance criteria
+## Security invariant
+
+For any activated process, gcpctx guarantees that effective gcloud project, ADC context, impersonated service account, quota project, and credential-relevant environment variables match the approved profile and active policy, **or activation fails closed**.
+
+| Guarantee                   | Enforced in                  | Doctor check                                     |
+| --------------------------- | ---------------------------- | ------------------------------------------------ |
+| Project / impersonation     | `activation.py`, `config.py` | `gcloud_project`, `impersonation`, `env_project` |
+| Isolated `CLOUDSDK_CONFIG`  | ADR-0003, `paths.py`         | `ambient_cloudsdk`, `expected_context`           |
+| gcloud binary trust         | `gcloud_trust.py`            | `gcloud_trust`                                   |
+| Approval + expiry           | `approvals.py`               | `approval`, `approval_expiry`                    |
+| ADC readiness               | `gcloud.py`                  | `adc`                                            |
+| IAM impersonation (strict)  | `doctor.py`                  | `impersonation_iam`                              |
+| Filesystem posture (strict) | `security.py`                | `state_permissions`                              |
+| Credential env surface      | `activation.py`              | `gac`                                            |
+| Org policy                  | `policy.py`                  | `policy`                                         |
+
+## v0.3 acceptance criteria
 
 1. No config-controlled environment variable can alter effective project, credential file, ADC path, or `CLOUDSDK_CONFIG`.
 2. Approval and context-state writes are atomic, locked, symlink-safe, and owner-only.
 3. gcloud binary trust is checked and included in remembered approvals (schema v2).
-4. `gcpctx doctor --strict --json` fails CI/agent startup when posture is unsafe.
+4. `gcpctx doctor --strict --json` fails CI/agent startup when posture is unsafe (stable check ids and exit codes — see [docs/doctor-contract.md](docs/doctor-contract.md)).
 5. PyPI releases use Trusted Publishing (OIDC); SBOM and provenance artifacts attach to GitHub Releases.
 
 ## Compliance gate
@@ -46,7 +62,7 @@ For CI, IDE startup, or agent preflight:
 gcpctx doctor --strict --json
 ```
 
-Non-zero exit indicates an actionable security finding. See check names in JSON output (`gcloud_trust`, `state_permissions`, `impersonation_iam`, `approval_expiry`, etc.).
+Non-zero exit indicates an actionable security finding. JSON includes stable check `id` values (`gcloud_trust`, `state_permissions`, `impersonation_iam`, `approval_expiry`, etc.), `evidence`, and structured `remediation`. See [docs/doctor-contract.md](docs/doctor-contract.md) for the full catalog and exit-code table.
 
 ## Policy file
 

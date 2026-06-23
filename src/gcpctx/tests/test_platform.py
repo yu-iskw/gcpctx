@@ -21,10 +21,11 @@ import pytest
 from typer.testing import CliRunner
 
 from gcpctx.cli import app
+from gcpctx.exit_codes import ExitCode
 
 
 def test_windows_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
     result = CliRunner().invoke(app, ["status"])
-    assert result.exit_code == 8
+    assert result.exit_code == int(ExitCode.UNSUPPORTED_PLATFORM)
     assert "POSIX" in result.stderr

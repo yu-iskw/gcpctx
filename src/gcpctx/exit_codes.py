@@ -11,24 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""gcpctx package."""
+"""Stable process exit codes for gcpctx v0.3+."""
 
 from __future__ import annotations
 
-__version__ = "0.3.0"
+from enum import IntEnum
 
-from gcpctx.activation import activate, deactivate
-from gcpctx.config import load_config
-from gcpctx.discovery import find_project_root
-from gcpctx.doctor import run_doctor
-from gcpctx.shell import render_shell
 
-__all__ = [
-    "__version__",
-    "activate",
-    "deactivate",
-    "find_project_root",
-    "load_config",
-    "render_shell",
-    "run_doctor",
-]
+class ExitCode(IntEnum):
+    """Canonical exit codes for gcpctx CLI and doctor."""
+
+    OK = 0
+    GENERIC_ERROR = 1
+    CONFIG_NOT_FOUND = 2
+    APPROVAL_REQUIRED = 3
+    POLICY_VIOLATION = 4
+    UNSAFE_FILESYSTEM = 5
+    GCLOUD_TRUST_FAILURE = 6
+    ADC_NOT_INITIALIZED = 7
+    IAM_IMPERSONATION_FAILURE = 8
+    CONFIG_SCHEMA_ERROR = 9
+    UNSUPPORTED_PLATFORM = 10

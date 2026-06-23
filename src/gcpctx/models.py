@@ -110,18 +110,37 @@ class ContextState(BaseModel):
     last_initialized_at: str
 
 
+class DoctorRemediation(BaseModel):
+    """Actionable remediation for a failed doctor check."""
+
+    command: str | None = None
+    docs: str | None = None
+
+    def display_text(self) -> str:
+        """Prefer command text, then docs path, for human CLI output."""
+        if self.command:
+            return self.command
+        return self.docs or ""
+
+
 class DoctorCheck(BaseModel):
     """A single doctor diagnostic check."""
 
-    name: str
-    status: Literal["ok", "warning", "error"]
+    id: str
+    severity: Literal["error", "warning", "info"]
+    status: Literal["pass", "warn", "fail"]
     message: str
-    remediation: str | None = None
+    evidence: dict[str, str] = Field(default_factory=dict)
+    remediation: DoctorRemediation | None = None
 
 
 class DoctorResult(BaseModel):
-    """Aggregated doctor output."""
+    """Aggregated doctor output (v0.3 JSON contract)."""
 
+    version: str
+    status: Literal["ok", "warn", "fail"]
+    profile: str | None = None
+    context_id: str | None = None
     checks: list[DoctorCheck] = Field(default_factory=list)
     exit_code: int = 0
 

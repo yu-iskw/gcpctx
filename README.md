@@ -29,7 +29,7 @@ Choose one of these options:
 uvx gcpctx --help
 
 # Pin a version
-uvx gcpctx@0.2.0 status
+uvx gcpctx@0.3.0 status
 
 # Run from a local checkout (before publish)
 uvx --from /path/to/gcpctx gcpctx --help
@@ -191,15 +191,23 @@ gcpctx doctor --json
 gcpctx status --json
 ```
 
-Parse JSON for `active`, `cloudsdk_config`, `approval`, and per-check status from doctor.
+Use **`gcpctx status --json`** for activation fields (`active`, `cloudsdk_config`, `approval`, `project`, etc.).
+
+Use **`gcpctx doctor --json`** for the compliance gate: versioned check results with `id`, `severity`, `evidence`, and structured `remediation`. See [Doctor JSON contract](docs/doctor-contract.md).
 
 **When `GOOGLE_APPLICATION_CREDENTIALS` is required**
 
 Some tools insist on a key file path. Use `--allow-google-application-credentials` only when necessary; prefer impersonated ADC otherwise.
 
-## Security model (v0.2)
+## Security model (v0.3)
 
-- **POSIX only** — Windows is unsupported; the CLI fails closed until ACL checks land.
+### Security invariant
+
+For any activated process, gcpctx guarantees that effective gcloud project, ADC context, impersonated service account, quota project, and credential-relevant environment variables match the approved profile and active policy, **or activation fails closed**.
+
+See [SECURITY.md](SECURITY.md) for the enforcement map and [Doctor JSON contract](docs/doctor-contract.md) for machine-readable validation.
+
+- **POSIX only** — Windows is unsupported (exit **10**); the CLI fails closed until ACL checks land.
 - First-use approval with remember + **TTL** (default 30 days); schema v2 binds **gcloud path and fingerprint**
 - Config SHA-256 binding invalidates approval when project, service account, or config changes
 - **Immutable project identity** — `CLOUDSDK_CORE_PROJECT` always matches `profile.project` (cannot set via `env`)
@@ -213,6 +221,23 @@ Some tools insist on a key file path. Use `--allow-google-application-credential
 - Append-only **`audit.jsonl`** for security events (no credential material)
 
 See [SECURITY.md](SECURITY.md) and [Architecture decision records](docs/adr/) (ADR-0003 through ADR-0009).
+
+### Upgrading to v0.3
+
+**Breaking:** exit codes were remapped for automation. Notable changes from v0.2:
+
+| Situation                               | v0.2 exit | v0.3 exit |
+| --------------------------------------- | --------- | --------- |
+| Policy violation                        | 7         | **4**     |
+| Unsafe filesystem (`state_permissions`) | 4         | **5**     |
+| gcloud trust / project / impersonation  | 5         | **6**     |
+| ADC not initialized                     | 5         | **7**     |
+| IAM impersonation probe                 | 5         | **8**     |
+| Config schema error                     | 2         | **9**     |
+| Windows unsupported                     | 8         | **10**    |
+| `GOOGLE_APPLICATION_CREDENTIALS` set    | 6         | **4**     |
+
+Doctor `--json` shape changed: checks use `id`, `status` (`pass`/`warn`/`fail`), `severity`, `evidence`, and structured `remediation`. Top-level fields include `version`, `status`, `profile`, and `context_id`. See [Doctor JSON contract](docs/doctor-contract.md).
 
 ### Upgrading from v0.1
 
@@ -243,7 +268,7 @@ allowed_paths = ["/opt/google-cloud-sdk/bin/gcloud"]
 gcpctx doctor --strict --json
 ```
 
-Non-zero exit when isolation, approval, ADC, IAM impersonation, or filesystem posture is unsafe.
+Non-zero exit when isolation, approval, ADC, IAM impersonation, or filesystem posture is unsafe. Exit codes are stable in v0.3 — see [Doctor JSON contract](docs/doctor-contract.md).
 
 ## Troubleshooting
 
