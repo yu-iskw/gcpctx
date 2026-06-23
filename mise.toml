@@ -21,7 +21,7 @@ github_attestations = false
 # Installed by `mise install --locked`; tasks use per-task `tools` for scoped activation.
 [tools]
 trunk = "latest"
-trivy = "0.71.0"
+trivy = "0.71.1"
 "osv-scanner" = "latest"
 grype = "latest"
 codeql = "latest"
