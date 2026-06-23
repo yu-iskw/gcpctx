@@ -84,8 +84,7 @@ def load_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxCo
 
 def load_project_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxConfig:
     """Load project config with permission and symlink checks."""
-    _config, _raw = load_project_config_bytes(root, policy=policy)
-    return _config
+    return load_project_config_bytes(root, policy=policy)[0]
 
 
 def load_project_config_bytes(

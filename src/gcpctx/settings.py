@@ -66,7 +66,8 @@ def load_settings() -> UserSettings:
     return UserSettings()
 
 
-def save_settings(_settings: UserSettings) -> None:
+def save_settings(settings: UserSettings) -> None:
+    del settings
     ensure_dir(settings_file().parent)
     payload: dict[str, object] = {"version": 1}
     ensure_managed_file(settings_file(), tomli_w.dumps(payload))
