@@ -73,7 +73,7 @@ def run_gcloud(
     """Run gcloud with isolated CLOUDSDK_CONFIG."""
     gcloud = find_gcloud()
     env = _cloudsdk_env(cloudsdk_config, extra_env)
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(
         [gcloud, *args],
         capture_output=True,
         text=True,

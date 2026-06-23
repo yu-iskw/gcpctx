@@ -39,6 +39,8 @@ def activate(request: ActivationRequest) -> ActivationResult:
     try:
         ctx = resolve_project_context(request.cwd, request.profile)
     except ConfigNotFoundError:
+        if request.run_mode:
+            raise
         return missing_config_result()
     ctx_id = derive_context_id(
         ContextIdInput(
@@ -95,6 +97,18 @@ def deactivate() -> ActivationResult:
     return ActivationResult(active=False)
 
 
+def child_environ(
+    result: ActivationResult,
+    base: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Build subprocess environment from activation exports and unsets."""
+    env = (base or os.environ).copy()
+    for key in result.unsets:
+        env.pop(key, None)
+    env.update(result.exports)
+    return env
+
+
 def missing_config_result() -> ActivationResult:
     """When no .gcpctx.toml: deactivate if active, else emit no-op shell code."""
     if os.environ.get("GCPCTX_ACTIVE") == "1":
@@ -140,6 +154,6 @@ def _gac_policy(request: ActivationRequest) -> tuple[list[str], list[str]]:
         )
         raise CredentialConflictError(msg)
     unsets: list[str] = []
-    if request.hook_mode or not request.allow_google_application_credentials:
+    if request.hook_mode or request.run_mode or not request.allow_google_application_credentials:
         unsets.append("GOOGLE_APPLICATION_CREDENTIALS")
     return [warning], unsets

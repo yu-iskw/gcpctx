@@ -34,6 +34,7 @@ from gcpctx.errors import ConfigNotFoundError, ConfigValidationError, GcpctxErro
 from gcpctx.logging import log_stderr
 from gcpctx.models import ActivationRequest, ActivationResult
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
+from gcpctx.runner import run_command
 from gcpctx.security import ensure_file
 from gcpctx.shell import (
     bash_hook_snippet,
@@ -334,6 +335,51 @@ def use_profile(
             )
         )
         _emit_shell(result, shell_name)
+    except GcpctxError as exc:
+        _handle_error(exc)
+
+
+@app.command(context_settings={"allow_extra_args": True})
+def run(
+    ctx: typer.Context,
+    profile: Annotated[str | None, typer.Option(help="Profile name.")] = None,
+    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
+    allow_google_application_credentials: Annotated[
+        bool,
+        typer.Option("--allow-google-application-credentials"),
+    ] = False,
+    force_refresh: Annotated[
+        bool,
+        typer.Option("--force-refresh", help="Force gcloud/ADC re-initialization."),
+    ] = False,
+) -> None:
+    """Run a command with per-project credentials (parent shell unchanged)."""
+    if not ctx.args:
+        typer.echo("usage: gcpctx run [--profile NAME] -- COMMAND [ARGS...]", err=True)
+        raise typer.Exit(code=2)
+    cmd = list(ctx.args)
+    if cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        typer.echo("usage: gcpctx run [--profile NAME] -- COMMAND [ARGS...]", err=True)
+        raise typer.Exit(code=2)
+    try:
+        result = _run_activation(
+            ActivationRequest(
+                cwd=(cwd or Path.cwd()).resolve(),
+                shell_name="zsh",
+                profile=profile,
+                interactive=sys.stdin.isatty(),
+                run_mode=True,
+                allow_google_application_credentials=allow_google_application_credentials,
+                force_refresh=force_refresh,
+            )
+        )
+        if not result.active:
+            typer.echo("activation failed", err=True)
+            raise typer.Exit(code=2)
+        env = activation.child_environ(result)
+        raise typer.Exit(code=run_command(cmd, env))
     except GcpctxError as exc:
         _handle_error(exc)
 

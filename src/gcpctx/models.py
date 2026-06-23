@@ -48,6 +48,7 @@ class ActivationRequest(BaseModel):
     shell_name: Literal["bash", "zsh"]
     interactive: bool = True
     hook_mode: bool = False
+    run_mode: bool = False
     allow_google_application_credentials: bool = False
     skip_gcloud_init: bool = False
     force_refresh: bool = False

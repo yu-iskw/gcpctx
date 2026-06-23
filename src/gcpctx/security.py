@@ -44,8 +44,12 @@ def ensure_dir(path: Path) -> None:
 
 
 def ensure_file(path: Path, content: str) -> None:
-    """Write file with restrictive permissions."""
-    ensure_dir(path.parent)
+    """Write file with restrictive permissions.
+
+    Parent directories are created if missing but not permission-checked; only
+    gcpctx-managed state trees should use `ensure_dir` on ancestors first.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     if not _chmod_supported():
         return

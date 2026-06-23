@@ -63,6 +63,12 @@ ignore = [
 "src/gcpctx/models.py" = [
   "TC003", # Pydantic resolves Path at model build time
 ]
+"src/gcpctx/gcloud.py" = [
+  "S603", # intentional gcloud subprocess with argv list
+]
+"src/gcpctx/runner.py" = [
+  "S603", # intentional child process with argv list
+]
 "src/gcpctx/tests/**" = [
   "S101",    # assert used in tests
   "S108",    # fixed temp paths in path assertions

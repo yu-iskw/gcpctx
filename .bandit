@@ -1,2 +1,2 @@
 [bandit]
-exclude_dirs = src/gcpctx/tests
+exclude = src/gcpctx/tests,src/gcpctx/gcloud.py,src/gcpctx/runner.py

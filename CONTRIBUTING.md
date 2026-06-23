@@ -33,7 +33,7 @@ src/gcpctx/           # Package source
   gcloud.py           # Isolated gcloud subprocesses
   shell.py            # bash/zsh export rendering
   tests/              # Colocated pytest suite
-docs/adr/             # Architecture decision records (0003–0007)
+docs/adr/             # Architecture decision records (0003–0008)
 dev/                  # CI helper scripts
 ```
 
@@ -90,6 +90,7 @@ Design rationale is recorded in [docs/adr/](docs/adr/):
 | [0005](docs/adr/0005-repository-trust-model-for-project-local-config.md)   | Approval and config hash          |
 | [0006](docs/adr/0006-shell-activation-and-environment-contract.md)         | Shell hook stdout contract        |
 | [0007](docs/adr/0007-profile-configuration-security-boundary.md)           | Profile validation, env allowlist |
+| [0008](docs/adr/0008-process-scoped-execution-via-gcpctx-run.md)           | `gcpctx run` process-scoped exec  |
 
 Use the `manage-adr` skill when adding new ADRs (requires `adr` CLI).
 

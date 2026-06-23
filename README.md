@@ -145,9 +145,25 @@ In hook mode, `GOOGLE_APPLICATION_CREDENTIALS` is unset while active (previous v
 
 ## Coding agents (Cursor, Claude Code, Codex, Copilot)
 
-Agents run in terminals or sandboxes that inherit environment variables. They do **not** get separate gcloud config unless you activate `gcpctx` in the parent shell first.
+Agents run in terminals or sandboxes that inherit environment variables. Use either **shell activation** (whole session) or **`gcpctx run`** (one process only).
 
-### Workflow
+### Process-scoped launch (recommended for agents)
+
+Run a command with per-project credentials **without** changing your parent shell:
+
+```bash
+gcpctx approve
+gcpctx run -- claude
+uvx gcpctx run -- codex ...
+gcpctx run --profile dev -- gcloud storage ls
+```
+
+- Requires `.gcpctx.toml` in the current directory tree (exit 2 if missing).
+- Pre-approve for non-interactive terminals (`gcpctx approve`).
+- `GOOGLE_APPLICATION_CREDENTIALS` is unset in the child by default (same as hook mode).
+- Access tokens are short-lived; client libraries refresh ADC automatically (no gcpctx supervisor).
+
+### Shell activation (whole session)
 
 1. Add `.gcpctx.toml` to the repo (`gcpctx init-project`).
 2. **Approve once** interactively, or pre-approve for automation:
@@ -190,7 +206,7 @@ Some tools insist on a key file path. Use `--allow-google-application-credential
 - Restrictive file permissions on state directories and approvals
 - `GOOGLE_APPLICATION_CREDENTIALS` unset by default in hook mode (restored on deactivate)
 
-See [Architecture decision records](docs/adr/) for design rationale (ADR-0003 through ADR-0007).
+See [Architecture decision records](docs/adr/) for design rationale (ADR-0003 through ADR-0008).
 
 ## Troubleshooting
 

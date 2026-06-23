@@ -49,3 +49,12 @@ def test_unsafe_dir_raises(tmp_path: Path) -> None:
     target.chmod(LOOSE_MODE)
     with pytest.raises(UnsafePermissionError):
         ensure_dir(target)
+
+
+def test_ensure_file_allows_loose_parent_dir(tmp_path: Path) -> None:
+    parent = tmp_path / "repo"
+    parent.mkdir()
+    parent.chmod(LOOSE_MODE)
+    target = parent / ".gcpctx.toml"
+    ensure_file(target, "version = 1\n")
+    assert (target.stat().st_mode & 0o777) == FILE_MODE

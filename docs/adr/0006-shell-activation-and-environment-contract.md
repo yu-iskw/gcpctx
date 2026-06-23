@@ -34,6 +34,7 @@ On deactivation, restore or unset originals. In hook mode, `GOOGLE_APPLICATION_C
 
 - **VSCode/Cursor extension:** Deferred — inherited env sufficient for v0.1.
 - **direnv integration:** Open question for v0.2.
+- **Process-scoped `gcpctx run`:** See ADR-0008 for one-shot agent launches without shell mutation.
 - **PowerShell:** Out of scope for v0.1.
 - **Keep GAC when set:** Rejected as default — breaks ADC isolation semantics.
 
