@@ -60,8 +60,20 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"src/your_package/tests/**" = [
-  "S101", # assert used in tests
+"src/gcpctx/models.py" = [
+  "TC003", # Pydantic resolves Path at model build time
+]
+"src/gcpctx/tests/**" = [
+  "S101",    # assert used in tests
+  "S108",    # fixed temp paths in path assertions
+  "S604",    # shell= in ActivationRequest (not subprocess)
+  "S103",    # intentional loose permissions in security tests
+  "S607",    # bash -n syntax check uses PATH-resolved shell
+  "S603",    # subprocess syntax validation in shell tests
+  "PLR2004", # permission/bit literals in security tests
+  "ARG001",  # unused pytest fixtures kept for signature stability
+  "PLC0415", # deferred imports in fixtures
+  "TC002",   # pytest/typer are runtime test dependencies
 ]
 
 # NOTE: Prefer narrow noqa comments over broad file-level bypasses.

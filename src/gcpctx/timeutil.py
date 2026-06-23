@@ -11,3 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Shared time helpers."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+
+def utc_now_iso() -> str:
+    """Return current UTC time as ISO-8601 string."""
+    return datetime.now(tz=UTC).isoformat()

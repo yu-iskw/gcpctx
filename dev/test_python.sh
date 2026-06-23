@@ -29,7 +29,7 @@ fi
 
 cd "${MODULE_DIR}"
 uv run pytest -v -s --cache-clear \
-	--cov="${MODULE_DIR}/src/your_package" \
+	--cov="${MODULE_DIR}/src/gcpctx" \
 	--cov-report=term-missing \
 	--cov-report=xml \
 	"${TEST_DIRS[@]}"

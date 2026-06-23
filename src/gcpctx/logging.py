@@ -11,10 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Stderr logging helpers."""
 
-"""Template tests."""
+from __future__ import annotations
+
+import sys
 
 
-def test_dummy() -> None:
-    """Placeholder test; replace with real cases when the package grows."""
-    assert True
+def log_stderr(message: str) -> None:
+    """Write a diagnostic message to stderr."""
+    print(message, file=sys.stderr)
