@@ -20,21 +20,23 @@ import tomllib
 import pytest
 
 from gcpctx import paths
-from gcpctx.settings import UserSettings, load_settings, save_settings
+from gcpctx.settings import (
+    UserSettings,
+    deprecated_global_gcloud_path,
+    load_settings,
+    save_settings,
+)
 
 
-def test_save_settings_escapes_special_characters(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_save_settings_writes_version_only(monkeypatch: pytest.MonkeyPatch) -> None:
     settings_path = paths.user_config_path() / "settings.toml"
     monkeypatch.setattr("gcpctx.settings.settings_file", lambda: settings_path)
 
-    path_value = '/tmp/gcloud-"x"\\line\nextra'
-    save_settings(UserSettings(gcloud_path=path_value))
+    save_settings(UserSettings())
 
     raw = tomllib.loads(settings_path.read_text(encoding="utf-8"))
-    assert raw["gcloud_path"] == path_value
-    assert load_settings().gcloud_path == path_value
+    assert raw == {"version": 1}
+    assert load_settings() == UserSettings()
 
 
 def test_load_settings_ignores_unknown_keys_and_accepts_version_2(
@@ -44,9 +46,9 @@ def test_load_settings_ignores_unknown_keys_and_accepts_version_2(
     monkeypatch.setattr("gcpctx.settings.settings_file", lambda: settings_path)
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(
-        'version = 2\ngcloud_path = "/opt/gcloud"\nextra = true\n',
-        encoding="utf-8",
+        'version = 2\ngcloud_path = "/opt/gcloud"\nextra = true\n', encoding="utf-8"
     )
     settings_path.chmod(0o600)
 
-    assert load_settings().gcloud_path == "/opt/gcloud"
+    assert load_settings() == UserSettings()
+    assert deprecated_global_gcloud_path() == "/opt/gcloud"

@@ -20,9 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 from typer.testing import CliRunner
 
-from gcpctx import paths
 from gcpctx.cli import app
-from gcpctx.settings import UserSettings, load_settings, save_settings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -70,12 +68,16 @@ def test_hook_eval_activation_failure_emits_deactivate(
     assert "approval required" in result.stderr.lower()
 
 
-def test_config_unset_gcloud_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings_path = paths.user_config_path() / "settings.toml"
-    monkeypatch.setattr("gcpctx.settings.settings_file", lambda: settings_path)
+def test_config_unset_gcloud_path(project_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(project_tree)
+    gcloud_bin = project_tree / "gcloud"
+    gcloud_bin.write_bytes(b"fake")
+    gcloud_bin.chmod(0o755)
+    set_result = runner.invoke(app, ["config", "set-gcloud-path", str(gcloud_bin)])
+    assert set_result.exit_code == 0
 
-    save_settings(UserSettings(gcloud_path="/usr/bin/gcloud"))
     result = runner.invoke(app, ["config", "unset-gcloud-path"])
     assert result.exit_code == 0
     assert "Cleared gcloud_path" in result.stdout
-    assert load_settings().gcloud_path is None
+    config_text = (project_tree / ".gcpctx.toml").read_text(encoding="utf-8")
+    assert "gcloud_path" not in config_text

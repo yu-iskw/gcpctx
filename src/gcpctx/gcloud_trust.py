@@ -22,9 +22,10 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
+from gcpctx.config import load_project_config
+from gcpctx.discovery import find_project_root
 from gcpctx.errors import GcloudNotFoundError, GcloudTrustError
 from gcpctx.policy import SecurityPolicy, load_policy, matches_allowlist
-from gcpctx.settings import load_settings
 
 _FINGERPRINT_CACHE: dict[str, tuple[int, int, str]] = {}
 
@@ -39,18 +40,25 @@ class GcloudTrustResult:
     warnings: tuple[str, ...] = ()
 
 
-def resolve_gcloud_path() -> str:
-    """Resolve gcloud path from user settings or PATH."""
-    configured = load_settings().gcloud_path
-    if configured and Path(configured).is_file():
-        return configured
-    path = _first_gcloud_on_path() or shutil.which("gcloud")
+def _configured_gcloud_path(cwd: Path) -> str | None:
+    root = find_project_root(cwd)
+    if root is None:
+        return None
+    return load_project_config(root).gcloud_path
+
+
+def resolve_gcloud_path(cwd: Path, *, configured: str | None = None) -> str:
+    """Resolve gcloud path from project config or PATH."""
+    pin = _configured_gcloud_path(cwd) if configured is None else configured
+    if pin and Path(pin).is_file():
+        return pin
+    path = shutil.which("gcloud")
     if path is None:
-        if configured:
+        if pin:
             msg = (
-                f"pinned gcloud_path {configured!r} not found and gcloud not on PATH; "
-                "run gcpctx config unset-gcloud-path or "
-                "gcpctx config set-gcloud-path $(which gcloud)"
+                f"pinned gcloud_path {pin!r} not found and gcloud not on PATH; "
+                "remove gcloud_path from .gcpctx.toml, or run "
+                "gcpctx config set-gcloud-path $(which gcloud) in the project directory"
             )
         else:
             msg = "gcloud not found on PATH"
@@ -63,12 +71,13 @@ def resolve_trusted_gcloud(
     policy: SecurityPolicy | None = None,
     *,
     strict: bool | None = None,
+    configured_path: str | None = None,
 ) -> GcloudTrustResult:
     """Resolve and validate the gcloud binary for *cwd*."""
     active_policy = policy or load_policy()
     effective_strict = active_policy.strict if strict is None else strict
-    configured = load_settings().gcloud_path
-    path = resolve_gcloud_path()
+    configured = configured_path if configured_path is not None else _configured_gcloud_path(cwd)
+    path = resolve_gcloud_path(cwd, configured=configured)
     result = validate_gcloud_path(
         path,
         cwd=cwd,
@@ -80,7 +89,6 @@ def resolve_trusted_gcloud(
         return GcloudTrustResult(
             path=result.path,
             sha256=result.sha256,
-            version=result.version,
             warnings=(stale_warning, *result.warnings),
         )
     return result
@@ -116,7 +124,7 @@ def validate_gcloud_path(  # noqa: PLR0912
     *,
     cwd: Path,
     policy: SecurityPolicy,
-    strict: bool = False,
+    strict: bool | None = None,
 ) -> GcloudTrustResult:
     """Validate gcloud binary trust boundaries."""
     resolved = Path(path).resolve()
@@ -129,7 +137,7 @@ def validate_gcloud_path(  # noqa: PLR0912
 
     warnings: list[str] = []
     gcloud_policy = policy.gcloud
-    effective_strict = strict or policy.strict
+    effective_strict = policy.strict if strict is None else strict
 
     if gcloud_policy.allowed_paths and not matches_allowlist(
         str(resolved), gcloud_policy.allowed_paths
@@ -141,7 +149,6 @@ def validate_gcloud_path(  # noqa: PLR0912
         _reject_gcloud_under_cwd(resolved, cwd)
     _reject_world_writable_parents(resolved, gcloud_policy.deny_world_writable_parent)
     warnings.extend(_owner_warnings(resolved, effective_strict))
-    warnings.extend(_toolchain_warnings(load_settings().gcloud_path, path))
 
     digest = fingerprint_gcloud(str(resolved))
     if digest is None:
@@ -196,31 +203,3 @@ def _owner_warnings(resolved: Path, strict: bool) -> list[str]:
     if strict:
         raise GcloudTrustError(message)
     return [message]
-
-
-def _is_mise_shim_path(path: str) -> bool:
-    normalized = path.replace("\\", "/")
-    return "/mise/shims/" in normalized
-
-
-def _first_gcloud_on_path() -> str | None:
-    """Return the first executable gcloud on PATH, skipping version-manager shims."""
-    for directory in os.environ.get("PATH", "").split(os.pathsep):
-        if not directory:
-            continue
-        candidate = Path(directory) / "gcloud"
-        if (
-            candidate.is_file()
-            and os.access(candidate, os.X_OK)
-            and not _is_mise_shim_path(str(candidate))
-        ):
-            return str(candidate)
-    return None
-
-
-def _toolchain_warnings(configured_path: str | None, resolved_input: str) -> list[str]:
-    if configured_path is not None:
-        return []
-    if _is_mise_shim_path(resolved_input):
-        return ["gcloud resolved via mise shim; put system gcloud before mise shims on PATH"]
-    return []

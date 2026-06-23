@@ -18,7 +18,10 @@ from __future__ import annotations
 import hashlib
 import re
 import tomllib
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
+
+import tomli_w
 
 from gcpctx.discovery import config_path
 from gcpctx.errors import ConfigValidationError
@@ -32,9 +35,12 @@ from gcpctx.policy import (
     validate_quota_project_allowed,
     validate_service_account_allowed,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from gcpctx.security import (
+    check_config_permissions,
+    ensure_managed_file,
+    reject_symlink,
+    secure_read_text,
+)
 
 PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 PROJECT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
@@ -76,6 +82,25 @@ def load_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxCo
     return load_config_from_bytes(config_path(root).read_bytes(), policy=policy)
 
 
+def load_project_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxConfig:
+    """Load project config with permission and symlink checks."""
+    _config, _raw = load_project_config_bytes(root, policy=policy)
+    return _config
+
+
+def load_project_config_bytes(
+    root: Path,
+    *,
+    policy: SecurityPolicy | None = None,
+) -> tuple[GcpctxConfig, bytes]:
+    """Load project config and return parsed model plus raw bytes."""
+    check_config_permissions(root)
+    cfg_path = config_path(root)
+    reject_symlink(cfg_path)
+    raw = secure_read_text(cfg_path).encode("utf-8")
+    return load_config_from_bytes(raw, policy=policy), raw
+
+
 def select_profile(config: GcpctxConfig, profile: str | None) -> tuple[str, ProfileConfig]:
     """Resolve profile name and return (name, ProfileConfig)."""
     name = profile or config.default_profile
@@ -83,6 +108,36 @@ def select_profile(config: GcpctxConfig, profile: str | None) -> tuple[str, Prof
         msg = f"Profile {name!r} not found in configuration"
         raise ConfigValidationError(msg)
     return name, config.profiles[name]
+
+
+def save_config(root: Path, config: GcpctxConfig) -> None:
+    """Write validated project configuration to .gcpctx.toml."""
+    payload = config.model_dump(mode="json", exclude_none=True)
+    ensure_managed_file(config_path(root), tomli_w.dumps(payload))
+
+
+def resolve_existing_gcloud_binary(gcloud_path: str | Path) -> Path:
+    """Resolve and verify a gcloud binary exists."""
+    resolved = Path(gcloud_path).resolve()
+    if not resolved.is_file():
+        msg = f"gcloud binary not found: {resolved}"
+        raise ConfigValidationError(msg)
+    return resolved
+
+
+def set_project_gcloud_path(root: Path, gcloud_path: str) -> None:
+    """Set gcloud_path in .gcpctx.toml after validating the binary exists."""
+    resolved = resolve_existing_gcloud_binary(gcloud_path)
+    config = load_project_config(root)
+    updated = config.model_copy(update={"gcloud_path": str(resolved)})
+    save_config(root, updated)
+
+
+def unset_project_gcloud_path(root: Path) -> None:
+    """Remove gcloud_path from .gcpctx.toml."""
+    config = load_project_config(root)
+    updated = config.model_copy(update={"gcloud_path": None})
+    save_config(root, updated)
 
 
 def service_account_project(service_account: str) -> str | None:
@@ -110,7 +165,20 @@ def _validate_raw(raw: dict[str, Any], policy: SecurityPolicy) -> None:
         msg = f"default_profile {default_profile!r} not in profiles"
         raise ConfigValidationError(msg)
 
+    _validate_gcloud_path(raw.get("gcloud_path"))
     _validate_profiles(profiles, policy)
+
+
+def _validate_gcloud_path(value: object) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str):
+        msg = "gcloud_path must be a string"
+        raise ConfigValidationError(msg)
+    path = Path(value)
+    if not path.is_absolute():
+        msg = "gcloud_path must be an absolute path"
+        raise ConfigValidationError(msg)
 
 
 def _validate_profiles(profiles: dict[str, Any], policy: SecurityPolicy) -> None:
@@ -207,12 +275,21 @@ def render_init_project_toml(
     project: str,
     service_account: str,
     profile: str = "dev",
+    gcloud_path: str | None = None,
 ) -> str:
     """Return minimal .gcpctx.toml content for init-project."""
-    return (
-        "version = 1\n"
-        f'default_profile = "{profile}"\n\n'
-        f"[profiles.{profile}]\n"
-        f'project = "{project}"\n'
-        f'service_account = "{service_account}"\n'
+    lines = [
+        "version = 1",
+        f'default_profile = "{profile}"',
+    ]
+    if gcloud_path is not None:
+        lines.append(f'gcloud_path = "{gcloud_path}"')
+    lines.extend(
+        [
+            "",
+            f"[profiles.{profile}]",
+            f'project = "{project}"',
+            f'service_account = "{service_account}"',
+        ]
     )
+    return "\n".join(lines) + "\n"

@@ -38,6 +38,7 @@ class GcpctxConfig(BaseModel):
     version: Literal[1]
     default_profile: str
     profiles: dict[str, ProfileConfig]
+    gcloud_path: str | None = None
 
 
 class ActivationRequest(BaseModel):
@@ -84,6 +85,7 @@ class ApprovalRecord(BaseModel):
     schema_version: int = 2
     gcloud_path: str | None = None
     gcloud_sha256: str | None = None
+    gcloud_version: str | None = None
     expires_at: str | None = None
 
 

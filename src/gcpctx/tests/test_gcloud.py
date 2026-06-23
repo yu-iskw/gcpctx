@@ -80,6 +80,7 @@ def test_ensure_initialized_calls(
             profile_name="dev",
             profile=profile,
             config_sha256="abc",
+            gcloud_executable=str(fake_gcloud.parent / "gcloud"),
             force=True,
         )
     )

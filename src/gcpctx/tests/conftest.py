@@ -16,11 +16,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 from typing import TYPE_CHECKING
 
 import pytest
 
-import gcpctx.gcloud as gcloud_mod
 from gcpctx.gcloud_trust import GcloudTrustResult
 
 if TYPE_CHECKING:
@@ -61,9 +61,11 @@ def _permissive_gcloud_trust(monkeypatch: pytest.MonkeyPatch) -> None:
         policy: object = None,
         *,
         strict: bool | None = None,
+        configured_path: str | None = None,
     ) -> GcloudTrustResult:
-        del cwd, policy, strict
-        return GcloudTrustResult(path="/usr/bin/gcloud", sha256="test" * 8)
+        del cwd, policy, strict, configured_path
+        path = shutil.which("gcloud") or "/usr/bin/gcloud"
+        return GcloudTrustResult(path=path, sha256="test" * 8)
 
     monkeypatch.setattr("gcpctx.activation.resolve_trusted_gcloud", _trust)
     monkeypatch.setattr("gcpctx.doctor.resolve_trusted_gcloud", _trust)
@@ -86,7 +88,6 @@ def project_tree(tmp_path: Path) -> Path:
 @pytest.fixture
 def fake_gcloud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Install a fake gcloud script that logs invocations."""
-    gcloud_mod.clear_gcloud_cache()
     log_file = tmp_path / "gcloud.jsonl"
     script = tmp_path / "gcloud"
     script.write_text(

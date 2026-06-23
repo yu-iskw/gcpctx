@@ -27,7 +27,14 @@ from rich.table import Table
 
 from gcpctx import activation, gcloud as gcloud_mod
 from gcpctx.approvals import add_approval, revoke_approval
-from gcpctx.config import load_config, render_init_project_toml, validate_init_project_inputs
+from gcpctx.config import (
+    load_project_config,
+    render_init_project_toml,
+    resolve_existing_gcloud_binary,
+    set_project_gcloud_path,
+    unset_project_gcloud_path,
+    validate_init_project_inputs,
+)
 from gcpctx.discovery import config_path, find_project_root
 from gcpctx.doctor import run_doctor, status_info
 from gcpctx.errors import (
@@ -43,7 +50,6 @@ from gcpctx.policy import load_policy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 from gcpctx.runner import run_command
 from gcpctx.security import ensure_file, is_posix_platform
-from gcpctx.settings import UserSettings, load_settings, save_settings
 from gcpctx.shell import (
     bash_hook_snippet,
     render_shell,
@@ -75,7 +81,7 @@ def main() -> None:
 
 init_app = typer.Typer(help="Install shell integration.")
 hook_app = typer.Typer(help="Shell hook commands.")
-config_app = typer.Typer(help="User settings.")
+config_app = typer.Typer(help="Project gcloud settings.")
 app.add_typer(init_app, name="init")
 app.add_typer(hook_app, name="hook")
 app.add_typer(config_app, name="config")
@@ -143,7 +149,7 @@ def profiles(
     if root is None:
         typer.echo("No .gcpctx.toml found", err=True)
         raise typer.Exit(code=2)
-    config = load_config(root, policy=load_policy())
+    config = load_project_config(root, policy=load_policy())
     typer.echo(f"Profiles in {config_path(root)}\n")
     for name, prof in config.profiles.items():
         marker = "*" if name == config.default_profile else " "
@@ -283,7 +289,7 @@ def approve(
     """Remember approval for the current directory/profile."""
     ctx = _require_project_context(cwd, profile)
     policy = load_policy()
-    trust = resolve_trusted_gcloud(ctx.root, policy=policy)
+    trust = resolve_trusted_gcloud(ctx.root, policy=policy, configured_path=ctx.gcloud_path)
     add_approval(ctx, mode="remembered", policy=policy, gcloud_trust=trust)
     typer.echo(f"Remembered approval for profile {ctx.profile_name!r} at {ctx.root}")
 
@@ -426,6 +432,10 @@ def init_project(
         typer.Option("--service-account", help="Service account email."),
     ] = None,
     profile: Annotated[str, typer.Option(help="Default profile name.")] = "dev",
+    gcloud_path: Annotated[
+        Path | None,
+        typer.Option("--gcloud-path", help="Absolute path to gcloud binary."),
+    ] = None,
     cwd: Annotated[Path | None, typer.Option(help="Target directory.")] = None,
 ) -> None:
     """Write a minimal .gcpctx.toml in the current directory."""
@@ -441,17 +451,31 @@ def init_project(
     except ConfigValidationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
-    content = render_init_project_toml(project=proj, service_account=sa, profile=profile)
+    resolved_gcloud: str | None = None
+    if gcloud_path is not None:
+        resolved_gcloud = str(resolve_existing_gcloud_binary(gcloud_path))
+    content = render_init_project_toml(
+        project=proj,
+        service_account=sa,
+        profile=profile,
+        gcloud_path=resolved_gcloud,
+    )
     ensure_file(dest, content)
     typer.echo(f"Wrote {dest}")
 
 
 @config_app.command("show")
-def config_show() -> None:
-    """Show user settings."""
-    settings = load_settings()
-    if settings.gcloud_path:
-        typer.echo(f"gcloud_path = {settings.gcloud_path}")
+def config_show(
+    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
+) -> None:
+    """Show gcloud_path from the project .gcpctx.toml."""
+    root = find_project_root((cwd or Path.cwd()).resolve())
+    if root is None:
+        typer.echo("No .gcpctx.toml found", err=True)
+        raise typer.Exit(code=2)
+    config = load_project_config(root)
+    if config.gcloud_path:
+        typer.echo(f"gcloud_path = {config.gcloud_path}")
     else:
         typer.echo("gcloud_path = (unset, using PATH)")
 
@@ -462,20 +486,25 @@ def config_set_gcloud_path(
         Path,
         typer.Argument(help="Absolute path to gcloud binary (e.g. $(which gcloud))."),
     ],
+    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
 ) -> None:
-    """Pin the trusted gcloud binary path."""
-    resolved = path.resolve()
-    if not resolved.is_file():
-        typer.echo(f"gcloud binary not found: {resolved}", err=True)
-        raise typer.Exit(code=2)
-    save_settings(UserSettings(gcloud_path=str(resolved)))
-    typer.echo(f"Set gcloud_path to {resolved}")
+    """Pin the trusted gcloud binary path in .gcpctx.toml."""
+    ctx = _require_project_context(cwd)
+    try:
+        set_project_gcloud_path(ctx.root, str(path.resolve()))
+    except ConfigValidationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Set gcloud_path to {path.resolve()} in {config_path(ctx.root)}")
 
 
 @config_app.command("unset-gcloud-path")
-def config_unset_gcloud_path() -> None:
-    """Clear pinned gcloud path and use PATH resolution."""
-    save_settings(UserSettings())
+def config_unset_gcloud_path(
+    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
+) -> None:
+    """Clear pinned gcloud path from .gcpctx.toml and use PATH resolution."""
+    ctx = _require_project_context(cwd)
+    unset_project_gcloud_path(ctx.root)
     typer.echo("Cleared gcloud_path (using PATH)")
 
 

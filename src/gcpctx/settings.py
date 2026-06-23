@@ -17,16 +17,17 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import tomli_w
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from gcpctx import paths
 from gcpctx.errors import SettingsViolationError
-from gcpctx.security import ensure_dir, ensure_managed_file, reject_symlink, secure_read_text
-from gcpctx.toolchain import resolve_mise_gcloud_path
+from gcpctx.security import ensure_dir, ensure_managed_file, secure_read_text
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class SettingsFile(BaseModel):
@@ -35,14 +36,11 @@ class SettingsFile(BaseModel):
     model_config = ConfigDict(extra="ignore", strict=True)
 
     version: Literal[1, 2]
-    gcloud_path: str | None = None
 
 
 @dataclass(frozen=True)
 class UserSettings:
     """User-level gcpctx settings."""
-
-    gcloud_path: str | None = None
 
 
 def settings_file() -> Path:
@@ -59,29 +57,29 @@ def load_settings() -> UserSettings:
         msg = f"settings {path}: invalid TOML: {exc}"
         raise SettingsViolationError(msg) from exc
     try:
-        parsed = SettingsFile.model_validate(raw)
+        SettingsFile.model_validate(raw)
     except ValidationError as exc:
         errors = exc.errors()
         detail = errors[0]["msg"] if errors else "validation failed"
         msg = f"settings {path}: invalid schema: {detail}"
         raise SettingsViolationError(msg) from exc
-    return UserSettings(gcloud_path=parsed.gcloud_path)
+    return UserSettings()
 
 
-def save_settings(settings: UserSettings) -> None:
+def save_settings(_settings: UserSettings) -> None:
     ensure_dir(settings_file().parent)
     payload: dict[str, object] = {"version": 1}
-    if settings.gcloud_path:
-        payload["gcloud_path"] = settings.gcloud_path
     ensure_managed_file(settings_file(), tomli_w.dumps(payload))
 
 
-def pin_gcloud_path_from_mise() -> Path:
-    """Resolve gcloud via mise and persist the install binary path."""
-    path = Path(resolve_mise_gcloud_path()).resolve()
-    reject_symlink(path)
+def deprecated_global_gcloud_path() -> str | None:
+    """Return gcloud_path from settings.toml if present (deprecated)."""
+    path = settings_file()
     if not path.is_file():
-        msg = f"gcloud binary not found: {path}"
-        raise SettingsViolationError(msg)
-    save_settings(UserSettings(gcloud_path=str(path)))
-    return path
+        return None
+    try:
+        raw = tomllib.loads(secure_read_text(path))
+    except tomllib.TOMLDecodeError:
+        return None
+    value = raw.get("gcloud_path")
+    return value if isinstance(value, str) else None

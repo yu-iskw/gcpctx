@@ -21,7 +21,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from gcpctx.errors import GcloudCommandError
 from gcpctx.gcloud_trust import resolve_gcloud_path
@@ -30,26 +30,13 @@ from gcpctx.paths import cloudsdk_config_dir, context_state_file
 from gcpctx.security import ensure_dir, ensure_managed_file, secure_read_text
 from gcpctx.timeutil import utc_now_iso
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 DEBOUNCE_SECONDS = 60
-_GCLOUD_PATH: str | None = None
 _SUBPROCESS_TIMEOUT_SECONDS = 120
 
 
-def find_gcloud() -> str:
-    """Return path to gcloud executable (resolved, optionally cached)."""
-    global _GCLOUD_PATH  # noqa: PLW0603
-    if _GCLOUD_PATH is None:
-        _GCLOUD_PATH = resolve_gcloud_path()
-    return _GCLOUD_PATH
-
-
-def clear_gcloud_cache() -> None:
-    """Reset cached gcloud path (for tests)."""
-    global _GCLOUD_PATH  # noqa: PLW0603
-    _GCLOUD_PATH = None
+def find_gcloud(cwd: Path | None = None) -> str:
+    """Return path to gcloud executable for *cwd* (or current directory)."""
+    return resolve_gcloud_path(cwd or Path.cwd())
 
 
 def _cloudsdk_env(cloudsdk_config: Path, extra_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -66,9 +53,10 @@ def run_gcloud(
     *,
     cloudsdk_config: Path,
     extra_env: dict[str, str] | None = None,
+    gcloud_executable: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run gcloud with isolated CLOUDSDK_CONFIG."""
-    gcloud = find_gcloud()
+    gcloud = gcloud_executable or find_gcloud()
     env = _cloudsdk_env(cloudsdk_config, extra_env)
     result = subprocess.run(
         [gcloud, *args],
@@ -95,6 +83,7 @@ class InitContext:
     profile_name: str
     profile: ProfileConfig
     config_sha256: str
+    gcloud_executable: str
     force: bool = False
 
 
@@ -110,20 +99,27 @@ def ensure_initialized(ctx: InitContext) -> ContextState:
         if cached is not None:
             return _touch_state_checked(state_path, cached)
 
-    run_gcloud(["config", "set", "project", ctx.profile.project], cloudsdk_config=config_dir)
+    run_gcloud(
+        ["config", "set", "project", ctx.profile.project],
+        cloudsdk_config=config_dir,
+        gcloud_executable=ctx.gcloud_executable,
+    )
     run_gcloud(
         ["config", "set", "auth/impersonate_service_account", ctx.profile.service_account],
         cloudsdk_config=config_dir,
+        gcloud_executable=ctx.gcloud_executable,
     )
     if ctx.profile.region:
         run_gcloud(
             ["config", "set", "compute/region", ctx.profile.region],
             cloudsdk_config=config_dir,
+            gcloud_executable=ctx.gcloud_executable,
         )
     if ctx.profile.zone:
         run_gcloud(
             ["config", "set", "compute/zone", ctx.profile.zone],
             cloudsdk_config=config_dir,
+            gcloud_executable=ctx.gcloud_executable,
         )
 
     run_gcloud(
@@ -136,12 +132,14 @@ def ensure_initialized(ctx: InitContext) -> ContextState:
         ],
         cloudsdk_config=config_dir,
         extra_env={"CLOUDSDK_CORE_DISABLE_PROMPTS": "1"},
+        gcloud_executable=ctx.gcloud_executable,
     )
 
     if ctx.profile.quota_project:
         run_gcloud(
             ["auth", "application-default", "set-quota-project", ctx.profile.quota_project],
             cloudsdk_config=config_dir,
+            gcloud_executable=ctx.gcloud_executable,
         )
 
     now = utc_now_iso()
@@ -159,12 +157,18 @@ def ensure_initialized(ctx: InitContext) -> ContextState:
     return state
 
 
-def read_gcloud_property(cloudsdk_config: Path, prop: str) -> str | None:
+def read_gcloud_property(
+    cloudsdk_config: Path,
+    prop: str,
+    *,
+    gcloud_executable: str | None = None,
+) -> str | None:
     """Read a gcloud config property value."""
     try:
         result = run_gcloud(
             ["config", "get-value", prop],
             cloudsdk_config=cloudsdk_config,
+            gcloud_executable=gcloud_executable,
         )
     except GcloudCommandError:
         return None

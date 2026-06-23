@@ -219,7 +219,7 @@ See [SECURITY.md](SECURITY.md) and [Architecture decision records](docs/adr/) (A
 - Remove any `[profiles.*.env] CLOUDSDK_CORE_PROJECT` entries — use `profile.project` instead.
 - Service account emails must use the same GCP project as `profile.project` (e.g. `agent@my-dev-project.iam.gserviceaccount.com` for `project = "my-dev-project"`). Cross-project impersonation is not supported in v0.2.
 - Re-run `gcpctx approve` after upgrade (approval schema v2 adds gcloud binding and expiry).
-- Pin gcloud if needed: `gcpctx config set-gcloud-path "$(which gcloud)"` (optional; pinning overrides PATH — run `gcpctx config unset-gcloud-path` if you move gcloud after Homebrew or mise upgrades)
+- Pin gcloud per project if needed: add `gcloud_path` to `.gcpctx.toml` or run `gcpctx config set-gcloud-path "$(which gcloud)"` in the repo (optional; pinning overrides PATH — run `gcpctx config unset-gcloud-path` if you move or upgrade gcloud)
 
 ### Policy file (optional)
 

@@ -30,6 +30,7 @@ from gcpctx.models import DoctorCheck, DoctorResult, ProfileConfig
 from gcpctx.policy import SecurityPolicy, load_policy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 from gcpctx.security import check_path_permissions, reject_symlink
+from gcpctx.settings import deprecated_global_gcloud_path
 
 CheckStatus = Literal["ok", "warning", "error"]
 
@@ -83,6 +84,7 @@ def run_doctor(  # noqa: PLR0911
     effective_strict = strict or policy.strict
     collector = _CheckCollector(interactive=is_interactive, strict=effective_strict)
 
+    _check_deprecated_global_gcloud_pin(collector)
     trust = _resolve_trust(collector, cwd, policy, effective_strict)
     try:
         ctx = resolve_project_context(cwd, profile, policy=policy)
@@ -100,9 +102,15 @@ def run_doctor(  # noqa: PLR0911
     _check_approval(collector, ctx, check_policy, trust)
     expected_cloudsdk = ctx.expected_cloudsdk_config()
     _check_expected_context(collector, expected_cloudsdk)
-    _check_gcloud_state(collector, expected_cloudsdk, ctx.profile)
-    if effective_strict:
-        _check_impersonation_iam(collector, expected_cloudsdk, ctx)
+    if trust is not None:
+        _check_gcloud_state(
+            collector,
+            expected_cloudsdk,
+            ctx.profile,
+            gcloud_executable=trust.path,
+        )
+        if effective_strict:
+            _check_impersonation_iam(collector, expected_cloudsdk, ctx, trust.path)
     ambient_cloudsdk = os.environ.get("CLOUDSDK_CONFIG", "")
     _check_ambient_cloudsdk(collector, ambient_cloudsdk, expected_cloudsdk)
     _check_env_project(collector, ctx)
@@ -168,6 +176,17 @@ def _strict_policy_for_checks(policy: SecurityPolicy, effective_strict: bool) ->
         mode="strict",
         require_gcloud_path_approval=True,
         require_initialized_adc_for_hook=True,
+    )
+
+
+def _check_deprecated_global_gcloud_pin(collector: _CheckCollector) -> None:
+    if deprecated_global_gcloud_path() is None:
+        return
+    collector.add(
+        "settings",
+        "warning",
+        "settings.toml contains deprecated gcloud_path; move it to .gcpctx.toml and remove the global key",
+        "Run gcpctx config set-gcloud-path in the project directory, then edit settings.toml",
     )
 
 
@@ -312,9 +331,11 @@ def _check_gcloud_state(
     collector: _CheckCollector,
     config_path: Path,
     prof: ProfileConfig,
+    *,
+    gcloud_executable: str | None = None,
 ) -> None:
-    _check_gcloud_project(collector, config_path, prof)
-    _check_gcloud_impersonation(collector, config_path, prof)
+    _check_gcloud_project(collector, config_path, prof, gcloud_executable=gcloud_executable)
+    _check_gcloud_impersonation(collector, config_path, prof, gcloud_executable=gcloud_executable)
     _check_gcloud_adc(collector, config_path)
 
 
@@ -322,6 +343,7 @@ def _check_impersonation_iam(
     collector: _CheckCollector,
     config_path: Path,
     ctx: ResolvedProjectContext,
+    gcloud_executable: str,
 ) -> None:
     if not gcloud_mod.adc_exists(config_path):
         collector.add("impersonation_iam", "warning", "Skipped IAM probe: ADC not initialized")
@@ -335,6 +357,7 @@ def _check_impersonation_iam(
                 ctx.service_account,
             ],
             cloudsdk_config=config_path,
+            gcloud_executable=gcloud_executable,
         )
     except GcpctxError as exc:
         collector.add(
@@ -351,8 +374,14 @@ def _check_gcloud_project(
     collector: _CheckCollector,
     config_path: Path,
     prof: ProfileConfig,
+    *,
+    gcloud_executable: str | None = None,
 ) -> None:
-    proj = gcloud_mod.read_gcloud_property(config_path, "project")
+    proj = gcloud_mod.read_gcloud_property(
+        config_path,
+        "project",
+        gcloud_executable=gcloud_executable,
+    )
     if proj == prof.project:
         collector.add("gcloud_project", "ok", f"Project matches: {proj}")
     else:
@@ -363,8 +392,14 @@ def _check_gcloud_impersonation(
     collector: _CheckCollector,
     config_path: Path,
     prof: ProfileConfig,
+    *,
+    gcloud_executable: str | None = None,
 ) -> None:
-    imp = gcloud_mod.read_gcloud_property(config_path, "auth/impersonate_service_account")
+    imp = gcloud_mod.read_gcloud_property(
+        config_path,
+        "auth/impersonate_service_account",
+        gcloud_executable=gcloud_executable,
+    )
     if imp == prof.service_account:
         collector.add("impersonation", "ok", f"Impersonation matches: {imp}")
     else:

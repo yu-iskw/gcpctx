@@ -44,7 +44,11 @@ def activate(request: ActivationRequest) -> ActivationResult:
             raise
         return missing_config_result()
 
-    trust = resolve_trusted_gcloud(request.cwd, policy=policy)
+    trust = resolve_trusted_gcloud(
+        request.cwd,
+        policy=policy,
+        configured_path=ctx.gcloud_path,
+    )
 
     ctx_id = ctx.context_id()
     config_dir = ctx.expected_cloudsdk_config()
@@ -71,6 +75,7 @@ def activate(request: ActivationRequest) -> ActivationResult:
                 profile_name=ctx.profile_name,
                 profile=ctx.profile,
                 config_sha256=ctx.config_sha256,
+                gcloud_executable=trust.path,
                 force=request.force_refresh,
             )
         )
