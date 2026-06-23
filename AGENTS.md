@@ -4,14 +4,14 @@ Authoritative shared instructions for humans and coding agents. How each product
 
 ## Project overview
 
-Python package template. Tooling:
+Python package **gcpctx** — directory-scoped Google Cloud impersonation. Tooling:
 
 - **Package manager**: [uv](https://github.com/astral-sh/uv) (via `requirements.setup.txt`, not mise)
 - **CLI toolchain**: [mise](https://mise.jdx.dev/) — Trunk, Trivy, OSV-Scanner, Grype, CodeQL (`mise.toml` [tasks], `mise.lock`, `minimum_release_age = "7d"`)
 - **Build system**: [Hatchling](https://hatch.pypa.io/latest/)
 - **Linting/formatting**: [Trunk](https://trunk.io/) (Ruff, Pyright, Pylint, Bandit, Semgrep; Ruff is the formatter; Black is not used)
 - **Testing**: [pytest](https://docs.pytest.org/)
-- **Python**: 3.10+ (see `.python-version` for the pinned version)
+- **Python**: 3.11+ (see `.python-version` for the pinned version)
 
 ## Quick commands
 
@@ -46,7 +46,7 @@ make clean        # Clean build artifacts
 
 ## Testing
 
-- Tests live under `src/your_package/tests/` (colocated with the package)
+- Tests live under `src/gcpctx/tests/` (colocated with the package)
 - Test files must match `test_*.py`
 - Run `make test` before commits
 - Aim for meaningful coverage on critical paths
@@ -82,11 +82,11 @@ make clean        # Clean build artifacts
 
 ## Architecture
 
-- Package source: `src/your_package/` (rename when initializing a real project)
+- Package source: `src/gcpctx/`
 - Dev scripts: `dev/`
 - CI/CD: `.github/workflows/`
 - **Claude Code** automation: [`.claude/`](.claude/) — see [CLAUDE.md](CLAUDE.md) for how Claude loads this repo and the directory layout
-- **Architecture decision records** (ADRs): `docs/adr/`. Use the `manage-adr` skill when the `adr` CLI is installed
+- **Architecture decision records** (ADRs): `docs/adr/` — gcpctx design rationale in ADR-0003 through ADR-0007
 
 ## Common gotchas
 

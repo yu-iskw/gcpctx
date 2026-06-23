@@ -21,7 +21,7 @@ github_attestations = false
 # Installed by `mise install --locked`; tasks use per-task `tools` for scoped activation.
 [tools]
 trunk = "latest"
-trivy = "0.71.0"
+trivy = "0.71.1"
 "osv-scanner" = "latest"
 grype = "latest"
 codeql = "latest"
@@ -49,7 +49,7 @@ run = "trivy fs ."
 [tasks.scan-osv]
 description = "OSV-Scanner recursive lockfile scan"
 tools = { "osv-scanner" = "latest" }
-run = "osv-scanner scan -r ."
+run = "osv-scanner scan --lockfile=uv.lock"
 
 [tasks.scan-grype]
 description = "Grype filesystem vulnerability scan"

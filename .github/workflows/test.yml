@@ -5,7 +5,7 @@ on:
     paths:
       - .github/workflows/test.yml
       - pyproject.toml
-      - src/your_package/**/*.py
+      - src/gcpctx/**/*.py
       - pylintrc
       - mise.toml
       - mise.lock
@@ -23,13 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
       fail-fast: false
     defaults:
       run:
         shell: bash
     env:
-      PYTHON_PACKAGE_NAME: YOUR_PYTHON_PACKAGE_NAME
+      PYTHON_PACKAGE_NAME: gcpctx
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python

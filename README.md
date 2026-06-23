@@ -1,35 +1,224 @@
-# {{ project_name }}
+# gcpctx
 
-A production-ready Python package using modern tooling.
+Directory-scoped Google Cloud service account impersonation contexts for terminals, IDEs, and coding agents.
 
-## Features
+## What is gcpctx?
 
-- **Package Management**: [uv](https://github.com/astral-sh/uv)
-- **Build System**: [Hatchling](https://hatch.pypa.io/latest/)
-- **Linting & Formatting**: [Trunk](https://trunk.io/) (Ruff, Pyright, Pylint, Bandit; Ruff is also the formatter)
-- **Testing**: [pytest](https://docs.pytest.org/)
-- **CI/CD**: GitHub Actions
+`gcpctx` automatically activates an isolated Google Cloud SDK and Application Default Credentials (ADC) environment when you enter a directory with a `.gcpctx.toml` file. Each profile maps to a GCP project and an impersonated service account. Activation exports a dedicated `CLOUDSDK_CONFIG` so your global `~/.config/gcloud` is never mutated.
 
-## Security & Quality
+## Why directory-scoped impersonation?
 
-This template enforces high security and maintainability standards:
+Developers and coding agents often inherit broad or wrong GCP credentials from the parent shell. `gcpctx` scopes authentication to the repository you are working in, with first-use approval and config-hash invalidation when trust-relevant settings change.
 
-- **[GitHub CodeQL](https://codeql.github.com/)**: Deep analysis using the `security-and-quality` suite to track code health and catch vulnerabilities.
-- **Complexity Guardrails**: Cyclomatic complexity is capped at **10** per function (enforced via Ruff `C901`).
-- **Trunk Linters**: [Bandit](https://github.com/PyCQA/bandit) (security), [Semgrep](https://semgrep.dev/) (patterns), [Trivy](https://github.com/aquasecurity/trivy) (IaC/Secret scanning), and [OSV-Scanner](https://github.com/google/osv-scanner) (dependencies).
+## Installation
 
-## Development
+Choose one of these options:
 
-Conventions, build commands, and AI-agent instructions: see [AGENTS.md](AGENTS.md). Claude Code–specific config lives in `CLAUDE.md` (it imports [AGENTS.md](AGENTS.md)) and in [`.claude/`](.claude/).
+| Method                            | Best for                                             |
+| --------------------------------- | ---------------------------------------------------- |
+| [`uvx`](#run-with-uvx-no-install) | Try without installing, CI one-offs, pinned versions |
+| [`pipx`](#pipx)                   | Daily CLI use on your machine                        |
+| [From source](#from-source)       | Contributing or unreleased builds                    |
+
+### Run with `uvx` (no install)
+
+[`uvx`](https://docs.astral.sh/uv/guides/tools/) runs `gcpctx` in an ephemeral environment—no global install required.
 
 ```bash
-make setup-tools  # mise install --locked + mise run trunk-install
-make setup        # setup-tools + Python venv (uv)
-make lint         # mise run lint (Trunk)
-make format       # mise run format-trunk + ssort
-make test         # Run pytest test suite
-make scan-vulnerabilities  # Trivy, OSV-Scanner, Grype (serial via mise)
-make codeql       # Local CodeQL (x64 or Rosetta on ARM64; see AGENTS.md)
+# Latest from PyPI (when published)
+uvx gcpctx --help
+
+# Pin a version
+uvx gcpctx@0.1.0 status
+
+# Run from a local checkout (before publish)
+uvx --from /path/to/gcpctx gcpctx --help
 ```
 
-On Linux or macOS **ARM64**, CodeQL from `mise.lock` is an x64 bundle. `make setup-tools` skips the version check; use x64 hosts or emulation for `make codeql`.
+Typical workflow with `uvx`:
+
+```bash
+cd my-repo
+uvx gcpctx init-project \
+  --project my-dev-project \
+  --service-account agent-dev@my-dev-project.iam.gserviceaccount.com
+
+uvx gcpctx approve
+eval "$(uvx gcpctx activate --shell zsh)"
+
+uvx gcpctx status
+uvx gcpctx doctor
+```
+
+Shell hooks installed via `gcpctx init zsh` call `gcpctx` on your `PATH`. After choosing `uvx`, either add a shell alias (`alias gcpctx='uvx gcpctx'`) or install with `pipx` / `uv tool install` for hook integration.
+
+### pipx
+
+```bash
+pipx install gcpctx
+gcpctx --help
+```
+
+### From source
+
+```bash
+git clone <repo-url> && cd gcpctx
+uv sync
+uv run gcpctx --help
+# optional: uv tool install -e .
+```
+
+## Quick start
+
+```bash
+# 1. Create project config
+gcpctx init-project --project my-dev-project \
+  --service-account agent-dev@my-dev-project.iam.gserviceaccount.com
+
+# 2. Approve and activate (zsh example)
+gcpctx approve
+eval "$(gcpctx activate --shell zsh)"
+
+# 3. Verify
+gcpctx status
+gcloud config list
+```
+
+## `.gcpctx.toml` example
+
+```toml
+version = 1
+default_profile = "dev"
+
+[profiles.dev]
+project = "my-dev-project"
+service_account = "agent-dev@my-dev-project.iam.gserviceaccount.com"
+quota_project = "my-billing-project"
+region = "asia-northeast1"
+```
+
+## Shell integration
+
+```bash
+gcpctx init zsh   # or: gcpctx init bash
+exec $SHELL       # reload shell
+```
+
+The hook runs `gcpctx hook eval` on every directory change. **Stdout is shell code only**; diagnostics go to stderr.
+
+Manual activation without hooks:
+
+```bash
+eval "$(gcpctx activate --shell zsh)"
+eval "$(gcpctx deactivate --shell zsh)"  # restore prior env
+```
+
+Switch profile (after `gcpctx init` installs the wrapper):
+
+```bash
+gcpctx-use prod-readonly
+```
+
+## IDE usage (VS Code, Cursor, JetBrains)
+
+Integrated terminals **inherit the parent shell environment**. Subprocesses started by the IDE (build tasks, debuggers, test runners) see the same `CLOUDSDK_CONFIG`, ADC, and `GCPCTX_*` variables as your shell.
+
+### Recommended setup
+
+1. Install shell hooks (`gcpctx init zsh`) or manually `eval "$(gcpctx activate --shell zsh)"` in your login shell.
+2. Open the IDE **from that shell** (`cursor .`, `code .`) so new integrated terminals start activated.
+3. Confirm with `gcpctx status` in an integrated terminal.
+
+### Verify isolation
+
+```bash
+gcpctx status
+gcpctx doctor
+gcpctx doctor --json   # machine-readable for scripts
+```
+
+Doctor checks that `CLOUDSDK_CONFIG` lives under `~/.cache/gcpctx/contexts/`, gcloud project/impersonation match your profile, and ADC is initialized.
+
+**`GOOGLE_APPLICATION_CREDENTIALS`**
+
+In hook mode, `GOOGLE_APPLICATION_CREDENTIALS` is unset while active (previous value restored on deactivate) so ADC impersonation is not overridden. If you must keep a key file in non-interactive sessions, pass `--allow-google-application-credentials` to `activate`.
+
+## Coding agents (Cursor, Claude Code, Codex, Copilot)
+
+Agents run in terminals or sandboxes that inherit environment variables. Use either **shell activation** (whole session) or **`gcpctx run`** (one process only).
+
+### Process-scoped launch (recommended for agents)
+
+Run a command with per-project credentials **without** changing your parent shell:
+
+```bash
+gcpctx approve
+gcpctx run -- claude
+uvx gcpctx run -- codex ...
+gcpctx run --profile dev -- gcloud storage ls
+```
+
+- Requires `.gcpctx.toml` in the current directory tree (exit 2 if missing).
+- Pre-approve for non-interactive terminals (`gcpctx approve`).
+- `GOOGLE_APPLICATION_CREDENTIALS` is unset in the child by default (same as hook mode).
+- Access tokens are short-lived; client libraries refresh ADC automatically (no gcpctx supervisor).
+
+### Shell activation (whole session)
+
+1. Add `.gcpctx.toml` to the repo (`gcpctx init-project`).
+2. **Approve once** interactively, or pre-approve for automation:
+
+   ```bash
+   gcpctx approve   # remembered approval for this directory/profile
+   ```
+
+3. Activate in the shell that launches the agent:
+
+   ```bash
+   eval "$(gcpctx activate --shell zsh)"
+   ```
+
+4. Agents and their subprocesses inherit isolated credentials.
+
+### Non-interactive / fail-closed
+
+Without a matching approval, `gcpctx activate` exits with code **3** in non-interactive mode (typical agent terminals). Pre-run `gcpctx approve` in CI or document that users must activate interactively once.
+
+### Agent-friendly diagnostics
+
+```bash
+gcpctx doctor --json
+gcpctx status --json
+```
+
+Parse JSON for `active`, `cloudsdk_config`, `approval`, and per-check status from doctor.
+
+**When `GOOGLE_APPLICATION_CREDENTIALS` is required**
+
+Some tools insist on a key file path. Use `--allow-google-application-credentials` only when necessary; prefer impersonated ADC otherwise.
+
+## Security model
+
+- First-use approval with optional remember; non-interactive mode fails closed without approval
+- Config SHA-256 binding invalidates approval when project, service account, or config changes
+- Isolated `CLOUDSDK_CONFIG` under `~/.cache/gcpctx/contexts/`
+- Service account impersonation only (no long-lived key files in repo config)
+- Restrictive file permissions on state directories and approvals
+- `GOOGLE_APPLICATION_CREDENTIALS` unset by default in hook mode (restored on deactivate)
+
+See [Architecture decision records](docs/adr/) for design rationale (ADR-0003 through ADR-0008).
+
+## Troubleshooting
+
+| Symptom                         | Fix                                                               |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `approval required` in CI/agent | Run `gcpctx approve` once, or activate interactively              |
+| Wrong project                   | `gcpctx status`; check `.gcpctx.toml`                             |
+| Stale credentials               | `gcpctx refresh` or `gcpctx reset`                                |
+| `gcloud` not found              | Install [Google Cloud SDK](https://cloud.google.com/sdk)          |
+| ADC issues                      | `gcpctx doctor`                                                   |
+| IDE terminal not activated      | Activate in parent shell before launching IDE, or use shell hooks |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for developer setup, tests, and architecture notes.

@@ -13,45 +13,51 @@ exclude = [
   ".github",
   ".trunk",
   "dev",
-  "src/your_package/tests",
+  "src/gcpctx/tests",
   "dist",
   ".python-version",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/your_package"]
+packages = ["src/gcpctx"]
 
 [project]
-name = "your-package"
+name = "gcpctx"
 version = "0.1.0"
 authors = [{ name = "yu-iskw" }]
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.10.0"
+requires-python = ">=3.11.0"
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
   "Intended Audience :: Information Technology",
   "Intended Audience :: System Administrators",
-  "Operating System :: OS Independent",
-  "Topic :: Software Development :: Libraries",
+  "Operating System :: POSIX",
+  "Topic :: Security",
   "Topic :: Software Development :: Libraries :: Python Modules",
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Typing :: Typed",
 ]
-description = "A dbt artifacts parser in python"
-dependencies = []
+description = "Directory-scoped Google Cloud service account impersonation contexts"
+dependencies = [
+  "platformdirs>=4.0.0",
+  "pydantic>=2.0.0",
+  "rich>=13.0.0",
+  "typer>=0.12.0",
+]
 
 [project.scripts]
+gcpctx = "gcpctx.cli:app"
 
 [tool.pytest.ini_options]
-testpaths = ["src/your_package/tests"]
+testpaths = ["src/gcpctx/tests"]
 
 [dependency-groups]
 dev = [
@@ -77,13 +83,16 @@ reportMissingImports = true
 reportMissingTypeStubs = "warning"
 
 [tool.vulture]
-paths = ["src/your_package"]
+paths = ["src/gcpctx"]
 min_confidence = 80
 
 [tool.coverage.run]
 branch = true
-source = ["src/your_package"]
+source = ["src/gcpctx"]
 
 [tool.coverage.report]
 show_missing = true
 omit = ["*/tests/*"]
+
+[tool.bandit]
+exclude_dirs = ["src/gcpctx/tests"]
