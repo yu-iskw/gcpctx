@@ -25,7 +25,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from gcpctx import activation, gcloud as gcloud_mod
+from gcpctx import activation, cleanup
 from gcpctx.approvals import add_approval, revoke_approval
 from gcpctx.config import (
     load_project_config,
@@ -345,7 +345,7 @@ def reset(
         raise typer.Exit(code=2)
     ctx_id = os.environ.get("GCPCTX_CONTEXT_ID")
     if ctx_id:
-        gcloud_mod.reset_context(ctx_id)
+        cleanup.remove_context(ctx_id)
     try:
         result = _run_activation(
             ActivationRequest(
@@ -357,6 +357,64 @@ def reset(
             )
         )
         typer.echo(f"Reset context {result.context_id}")
+    except GcpctxError as exc:
+        _handle_error(exc)
+
+
+@app.command()
+def clean(  # noqa: PLR0912, PLR0913
+    profile: Annotated[str | None, typer.Option(help="Profile name.")] = None,
+    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
+    all_contexts: Annotated[
+        bool,
+        typer.Option("--all-contexts", help="Remove all isolated context directories."),
+    ] = False,
+    approvals: Annotated[
+        bool,
+        typer.Option("--approvals", help="Remove remembered approvals store."),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print paths that would be removed."),
+    ] = False,
+    reinit: Annotated[
+        bool,
+        typer.Option("--reinit", help="Re-initialize after project-scoped clean."),
+    ] = False,
+) -> None:
+    """Remove isolated gcloud cache and/or approvals (never touches global gcloud config)."""
+    try:
+        if reinit and (all_contexts or approvals):
+            msg = "--reinit requires project-scoped clean (omit --all-contexts and --approvals)"
+            typer.echo(msg, err=True)
+            raise typer.Exit(code=2)
+        context_id: str | None = None
+        work = (cwd or Path.cwd()).resolve()
+        removed: list[Path] = []
+        if all_contexts:
+            removed.extend(cleanup.remove_all_contexts(dry_run=dry_run))
+        if approvals:
+            removed.extend(cleanup.remove_approvals(dry_run=dry_run))
+        if not all_contexts and not approvals:
+            ctx = _require_project_context(cwd, profile)
+            context_id = ctx.context_id()
+            removed.extend(cleanup.remove_context(context_id, dry_run=dry_run))
+        if not removed:
+            typer.echo("nothing to clean")
+        else:
+            prefix = "would remove" if dry_run else "removed"
+            for path in removed:
+                typer.echo(f"{prefix} {path}")
+        if reinit and context_id is not None and not dry_run:
+            _run_activation(
+                ActivationRequest(
+                    cwd=work,
+                    shell_name="zsh",
+                    profile=profile,
+                    interactive=False,
+                    force_refresh=True,
+                )
+            )
     except GcpctxError as exc:
         _handle_error(exc)
 

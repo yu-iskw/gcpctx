@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING
 import pytest
 from typer.testing import CliRunner
 
+from gcpctx import paths
 from gcpctx.cli import app
+from gcpctx.project_context import resolve_project_context
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -81,3 +83,39 @@ def test_config_unset_gcloud_path(project_tree: Path, monkeypatch: pytest.Monkey
     assert "Cleared gcloud_path" in result.stdout
     config_text = (project_tree / ".gcpctx.toml").read_text(encoding="utf-8")
     assert "gcloud_path" not in config_text
+
+
+def test_clean_project_context(project_tree: Path) -> None:
+    ctx = resolve_project_context(project_tree)
+    ctx_dir = paths.context_dir(ctx.context_id())
+    ctx_dir.mkdir(parents=True)
+
+    result = runner.invoke(app, ["clean", "--cwd", str(project_tree)])
+
+    assert result.exit_code == 0
+    assert "removed" in result.stdout
+    assert not ctx_dir.exists()
+
+
+def test_clean_nothing_to_remove(project_tree: Path) -> None:
+    result = runner.invoke(app, ["clean", "--cwd", str(project_tree)])
+    assert result.exit_code == 0
+    assert "nothing to clean" in result.stdout
+
+
+def test_clean_dry_run_leaves_context(project_tree: Path) -> None:
+    ctx = resolve_project_context(project_tree)
+    ctx_dir = paths.context_dir(ctx.context_id())
+    ctx_dir.mkdir(parents=True)
+
+    result = runner.invoke(app, ["clean", "--cwd", str(project_tree), "--dry-run"])
+
+    assert result.exit_code == 0
+    assert "would remove" in result.stdout
+    assert ctx_dir.is_dir()
+
+
+def test_clean_reinit_rejected_with_all_contexts() -> None:
+    result = runner.invoke(app, ["clean", "--all-contexts", "--reinit"])
+    assert result.exit_code == 2
+    assert "--reinit requires project-scoped clean" in result.stderr

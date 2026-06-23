@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess  # nosec B404
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -179,13 +178,6 @@ def read_gcloud_property(
 def adc_exists(cloudsdk_config: Path) -> bool:
     """Return True if ADC credentials file exists for this config."""
     return (cloudsdk_config / "application_default_credentials.json").is_file()
-
-
-def reset_context(context_id: str) -> None:
-    """Delete isolated context directory."""
-    context_dir = cloudsdk_config_dir(context_id).parent
-    if context_dir.exists():
-        shutil.rmtree(context_dir)
 
 
 def _load_cached_state(

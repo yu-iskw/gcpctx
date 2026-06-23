@@ -247,14 +247,16 @@ Non-zero exit when isolation, approval, ADC, IAM impersonation, or filesystem po
 
 ## Troubleshooting
 
-| Symptom                         | Fix                                                               |
-| ------------------------------- | ----------------------------------------------------------------- |
-| `approval required` in CI/agent | Run `gcpctx approve` once, or activate interactively              |
-| Wrong project                   | `gcpctx status`; check `.gcpctx.toml`                             |
-| Stale credentials               | `gcpctx refresh` or `gcpctx reset`                                |
-| `gcloud` not found              | Install [Google Cloud SDK](https://cloud.google.com/sdk)          |
-| ADC issues                      | `gcpctx doctor`                                                   |
-| IDE terminal not activated      | Activate in parent shell before launching IDE, or use shell hooks |
+| Symptom                         | Fix                                                                                |
+| ------------------------------- | ---------------------------------------------------------------------------------- |
+| `approval required` in CI/agent | Run `gcpctx approve` once, or activate interactively                               |
+| Wrong project                   | `gcpctx status`; check `.gcpctx.toml`                                              |
+| Stale credentials               | `gcpctx refresh`, `gcpctx reset`, or `gcpctx clean` (then `gcpctx clean --reinit`) |
+| Corrupt isolated ADC / clutter  | `gcpctx clean` (project); `gcpctx clean --all-contexts` (all cache)                |
+| Reset remembered approvals      | `gcpctx clean --approvals` or `gcpctx revoke`                                      |
+| `gcloud` not found              | Install [Google Cloud SDK](https://cloud.google.com/sdk)                           |
+| ADC issues                      | `gcpctx doctor`                                                                    |
+| IDE terminal not activated      | Activate in parent shell before launching IDE, or use shell hooks                  |
 
 ## Contributing
 

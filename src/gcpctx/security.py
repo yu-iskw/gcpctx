@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import os
+import shutil
 import stat
 import sys
 from typing import TYPE_CHECKING
@@ -264,6 +265,20 @@ def check_config_permissions(root: Path) -> None:
     if perm != 0:
         msg = f"unsafe permissions on {config}: group/other bits set ({oct(mode & 0o777)})"
         raise UnsafePermissionError(msg)
+
+
+def secure_remove_tree(path: Path) -> None:
+    """Remove a file or directory tree only under managed gcpctx roots."""
+    if not path.exists():
+        return
+    if not _is_managed_state_path(path):
+        msg = f"refusing to remove path outside managed gcpctx state: {path}"
+        raise UnsafePermissionError(msg)
+    reject_symlink(path)
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
 
 
 def is_posix_platform() -> bool:

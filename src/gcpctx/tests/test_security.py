@@ -30,6 +30,7 @@ from gcpctx.security import (
     ensure_managed_file,
     ensure_secure_tree,
     reject_symlink,
+    secure_remove_tree,
 )
 
 if TYPE_CHECKING:
@@ -151,3 +152,10 @@ def test_managed_write_skips_filesystem_root_symlinks(
     target = managed / "approvals.json"
     ensure_managed_file(target, "{}")
     assert target.read_text(encoding="utf-8") == "{}"
+
+
+def test_secure_remove_tree_rejects_outside_managed_roots(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    with pytest.raises(UnsafePermissionError, match="outside managed"):
+        secure_remove_tree(outside)
