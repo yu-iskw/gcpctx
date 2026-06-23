@@ -14,6 +14,9 @@ jobs:
     env:
       PYTHON_PACKAGE_NAME: YOUR_PYTHON_PACKAGE_NAME
       PYTHON_NAME_SPACE: YOUR_PYTHON_NAME_SPACE
+    environment:
+      name: release
+      url: https://pypi.org/p/gcpctx
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
