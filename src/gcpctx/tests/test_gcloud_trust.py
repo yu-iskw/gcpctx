@@ -61,6 +61,8 @@ def test_validate_gcloud_allows_binary_under_cwd_when_policy_disabled(
     binary = project_tree / "gcloud"
     binary.write_bytes(b"fake-gcloud")
     binary.chmod(0o755)
-    policy = SecurityPolicy(gcloud=GcloudPolicy(deny_if_under_cwd=False))
+    policy = SecurityPolicy(
+        gcloud=GcloudPolicy(deny_if_under_cwd=False, deny_world_writable_parent=False)
+    )
     result = validate_gcloud_path(str(binary), cwd=project_tree, policy=policy)
     assert result.path == str(binary.resolve())
