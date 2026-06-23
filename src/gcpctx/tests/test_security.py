@@ -28,6 +28,7 @@ from gcpctx.security import (
     ensure_dir,
     ensure_file,
     ensure_managed_file,
+    ensure_secure_tree,
     reject_symlink,
 )
 
@@ -88,8 +89,6 @@ def test_ensure_secure_tree_repairs_loose_managed_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from gcpctx.security import ensure_secure_tree
-
     managed = tmp_path / "cache" / "gcpctx"
     monkeypatch.setattr(paths, "user_cache_path", lambda: managed)
     contexts = managed / "contexts"

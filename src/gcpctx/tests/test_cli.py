@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING
 import pytest
 from typer.testing import CliRunner
 
+from gcpctx import paths
 from gcpctx.cli import app
+from gcpctx.settings import UserSettings, load_settings, save_settings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -69,9 +71,6 @@ def test_hook_eval_activation_failure_emits_deactivate(
 
 
 def test_config_unset_gcloud_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    from gcpctx import paths
-    from gcpctx.settings import UserSettings, load_settings, save_settings
-
     settings_path = paths.user_config_path() / "settings.toml"
     monkeypatch.setattr("gcpctx.settings.settings_file", lambda: settings_path)
 
