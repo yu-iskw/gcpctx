@@ -66,3 +66,17 @@ def test_hook_eval_activation_failure_emits_deactivate(
     assert result.exit_code == 3
     assert "unset GCPCTX_ACTIVE" in result.stdout
     assert "approval required" in result.stderr.lower()
+
+
+def test_config_unset_gcloud_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gcpctx import paths
+    from gcpctx.settings import UserSettings, load_settings, save_settings
+
+    settings_path = paths.user_config_path() / "settings.toml"
+    monkeypatch.setattr("gcpctx.settings.settings_file", lambda: settings_path)
+
+    save_settings(UserSettings(gcloud_path="/usr/bin/gcloud"))
+    result = runner.invoke(app, ["config", "unset-gcloud-path"])
+    assert result.exit_code == 0
+    assert "Cleared gcloud_path" in result.stdout
+    assert load_settings().gcloud_path is None

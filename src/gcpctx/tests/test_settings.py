@@ -35,3 +35,18 @@ def test_save_settings_escapes_special_characters(
     raw = tomllib.loads(settings_path.read_text(encoding="utf-8"))
     assert raw["gcloud_path"] == path_value
     assert load_settings().gcloud_path == path_value
+
+
+def test_load_settings_ignores_unknown_keys_and_accepts_version_2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings_path = paths.user_config_path() / "settings.toml"
+    monkeypatch.setattr("gcpctx.settings.settings_file", lambda: settings_path)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        'version = 2\ngcloud_path = "/opt/gcloud"\nextra = true\n',
+        encoding="utf-8",
+    )
+    settings_path.chmod(0o600)
+
+    assert load_settings().gcloud_path == "/opt/gcloud"

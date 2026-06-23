@@ -16,15 +16,18 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import stat
+import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
 
 from gcpctx.errors import GcloudNotFoundError, GcloudTrustError
 from gcpctx.policy import SecurityPolicy, load_policy, matches_allowlist
 from gcpctx.settings import load_settings
+from gcpctx.toolchain import resolve_mise_gcloud_path
 
 _FINGERPRINT_CACHE: dict[str, tuple[int, int, str]] = {}
 
@@ -35,17 +38,25 @@ class GcloudTrustResult:
 
     path: str
     sha256: str | None
+    version: str | None = None
     warnings: tuple[str, ...] = ()
 
 
 def resolve_gcloud_path() -> str:
     """Resolve gcloud path from user settings or PATH."""
     configured = load_settings().gcloud_path
-    if configured:
+    if configured and Path(configured).is_file():
         return configured
     path = shutil.which("gcloud")
     if path is None:
-        msg = "gcloud not found on PATH"
+        if configured:
+            msg = (
+                f"pinned gcloud_path {configured!r} not found and gcloud not on PATH; "
+                "run gcpctx config unset-gcloud-path or "
+                "gcpctx config set-gcloud-path $(which gcloud)"
+            )
+        else:
+            msg = "gcloud not found on PATH"
         raise GcloudNotFoundError(msg)
     return path
 
@@ -59,12 +70,23 @@ def resolve_trusted_gcloud(
     """Resolve and validate the gcloud binary for *cwd*."""
     active_policy = policy or load_policy()
     effective_strict = active_policy.strict if strict is None else strict
-    return validate_gcloud_path(
-        resolve_gcloud_path(),
+    configured = load_settings().gcloud_path
+    path = resolve_gcloud_path()
+    result = validate_gcloud_path(
+        path,
         cwd=cwd,
         policy=active_policy,
         strict=effective_strict,
     )
+    if configured and not Path(configured).is_file():
+        stale_warning = f"Pinned gcloud_path {configured!r} not found; using {result.path}"
+        return GcloudTrustResult(
+            path=result.path,
+            sha256=result.sha256,
+            version=result.version,
+            warnings=(stale_warning, *result.warnings),
+        )
+    return result
 
 
 def fingerprint_gcloud(path: str) -> str | None:  # noqa: PLR0911
@@ -122,15 +144,22 @@ def validate_gcloud_path(  # noqa: PLR0912
         _reject_gcloud_under_cwd(resolved, cwd)
     _reject_world_writable_parents(resolved, gcloud_policy.deny_world_writable_parent)
     warnings.extend(_owner_warnings(resolved, effective_strict))
+    warnings.extend(_toolchain_warnings(load_settings().gcloud_path, path))
 
     digest = fingerprint_gcloud(str(resolved))
+    version = read_gcloud_version(str(resolved))
     if digest is None:
         message = f"could not fingerprint gcloud binary at {resolved}"
         if effective_strict:
             raise GcloudTrustError(message)
         warnings.append(message)
 
-    return GcloudTrustResult(path=str(resolved), sha256=digest, warnings=tuple(warnings))
+    return GcloudTrustResult(
+        path=str(resolved),
+        sha256=digest,
+        version=version,
+        warnings=tuple(warnings),
+    )
 
 
 def _reject_gcloud_under_cwd(resolved: Path, cwd: Path) -> None:
@@ -172,3 +201,55 @@ def _owner_warnings(resolved: Path, strict: bool) -> list[str]:
     if strict:
         raise GcloudTrustError(message)
     return [message]
+
+
+def read_gcloud_version(gcloud_path: str) -> str | None:
+    """Return gcloud SDK version string, if parseable."""
+    try:
+        result = subprocess.run(  # noqa: S603
+            [gcloud_path, "version", "--format=json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    version = payload.get("Google Cloud SDK")
+    return version if isinstance(version, str) and version else None
+
+
+def _is_mise_shim_path(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    return "/mise/shims/" in normalized
+
+
+def _toolchain_warnings(configured_path: str | None, resolved_input: str) -> list[str]:
+    warnings: list[str] = []
+    resolved = Path(resolved_input).resolve()
+    if configured_path is None and _is_mise_shim_path(resolved_input):
+        warnings.append(
+            "gcloud resolved via mise shim; pin the install binary with "
+            "gcpctx config set-gcloud-path --from-mise"
+        )
+        return warnings
+    if configured_path is not None:
+        return warnings
+    try:
+        mise_path = str(Path(resolve_mise_gcloud_path()).resolve())
+    except GcloudNotFoundError:
+        return warnings
+    if mise_path != str(resolved):
+        warnings.append(
+            f"PATH gcloud ({resolved}) differs from mise which gcloud ({mise_path}); "
+            "run gcpctx config set-gcloud-path --from-mise"
+        )
+    return warnings

@@ -458,7 +458,10 @@ def config_show() -> None:
 
 @config_app.command("set-gcloud-path")
 def config_set_gcloud_path(
-    path: Annotated[Path, typer.Argument(help="Absolute path to gcloud binary.")],
+    path: Annotated[
+        Path,
+        typer.Argument(help="Absolute path to gcloud binary (e.g. $(which gcloud))."),
+    ],
 ) -> None:
     """Pin the trusted gcloud binary path."""
     resolved = path.resolve()
@@ -467,6 +470,13 @@ def config_set_gcloud_path(
         raise typer.Exit(code=2)
     save_settings(UserSettings(gcloud_path=str(resolved)))
     typer.echo(f"Set gcloud_path to {resolved}")
+
+
+@config_app.command("unset-gcloud-path")
+def config_unset_gcloud_path() -> None:
+    """Clear pinned gcloud path and use PATH resolution."""
+    save_settings(UserSettings())
+    typer.echo("Cleared gcloud_path (using PATH)")
 
 
 @init_app.command("zsh")

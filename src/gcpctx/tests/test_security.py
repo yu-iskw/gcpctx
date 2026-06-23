@@ -55,14 +55,17 @@ def test_ensure_file_restrictive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert mode == FILE_MODE
 
 
-def test_unsafe_dir_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ensure_dir_repairs_loose_managed_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     managed = tmp_path / "config" / "gcpctx"
     monkeypatch.setattr(paths, "user_config_path", lambda: managed)
     target = managed / "loose"
     target.mkdir(parents=True)
     target.chmod(LOOSE_MODE)
-    with pytest.raises(UnsafePermissionError):
-        ensure_dir(target)
+    ensure_dir(target)
+    assert (target.stat().st_mode & 0o777) == DIR_MODE
 
 
 def test_ensure_file_allows_loose_parent_dir(tmp_path: Path) -> None:
@@ -79,3 +82,18 @@ def test_reject_symlink(tmp_path: Path) -> None:
     target.symlink_to(tmp_path / "real")
     with pytest.raises(UnsafePermissionError):
         reject_symlink(target)
+
+
+def test_ensure_secure_tree_repairs_loose_managed_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gcpctx.security import ensure_secure_tree
+
+    managed = tmp_path / "cache" / "gcpctx"
+    monkeypatch.setattr(paths, "user_cache_path", lambda: managed)
+    contexts = managed / "contexts"
+    contexts.mkdir(parents=True)
+    contexts.chmod(LOOSE_MODE)
+    ensure_secure_tree(contexts / "ctx-id" / "gcloud")
+    assert (contexts.stat().st_mode & 0o777) == DIR_MODE

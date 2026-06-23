@@ -73,6 +73,7 @@ def ensure_dir(path: Path) -> None:
     reject_symlink(path)
     if path.exists():
         if _is_managed_state_path(path):
+            _chmod_managed_ancestors(path)
             check_path_permissions(path, expect_dir=True)
         return
     path.mkdir(parents=True, exist_ok=True)
@@ -108,7 +109,7 @@ def _chmod_managed_ancestors(path: Path) -> None:  # noqa: PLR0912
             raise UnsafePermissionError(msg)
 
 
-def ensure_secure_tree(root: Path) -> None:  # noqa: PLR0912
+def ensure_secure_tree(root: Path) -> None:
     """Ensure managed ancestors of *root* are owner-only without scanning /."""
     if not _chmod_supported():
         return
@@ -129,6 +130,9 @@ def ensure_secure_tree(root: Path) -> None:  # noqa: PLR0912
         if parent == current:
             break
         current = parent
+    if not parts:
+        return
+    _chmod_managed_ancestors(parts[0])
     for directory in reversed(parts):
         reject_symlink(directory)
         if directory.exists():

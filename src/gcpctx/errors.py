@@ -76,6 +76,12 @@ class PolicyViolationError(GcpctxError):
     exit_code = 7
 
 
+class SettingsViolationError(GcpctxError):
+    """Raised when user settings.toml fails validation."""
+
+    exit_code = 2
+
+
 class GcloudTrustError(GcpctxError):
     """Raised when the gcloud binary fails trust validation."""
 
