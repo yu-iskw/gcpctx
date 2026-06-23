@@ -16,11 +16,9 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import shutil
 import stat
-import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -146,7 +144,6 @@ def validate_gcloud_path(  # noqa: PLR0912
     warnings.extend(_toolchain_warnings(load_settings().gcloud_path, path))
 
     digest = fingerprint_gcloud(str(resolved))
-    version = read_gcloud_version(str(resolved))
     if digest is None:
         message = f"could not fingerprint gcloud binary at {resolved}"
         if effective_strict:
@@ -156,7 +153,6 @@ def validate_gcloud_path(  # noqa: PLR0912
     return GcloudTrustResult(
         path=str(resolved),
         sha256=digest,
-        version=version,
         warnings=tuple(warnings),
     )
 
@@ -200,30 +196,6 @@ def _owner_warnings(resolved: Path, strict: bool) -> list[str]:
     if strict:
         raise GcloudTrustError(message)
     return [message]
-
-
-def read_gcloud_version(gcloud_path: str) -> str | None:
-    """Return gcloud SDK version string, if parseable."""
-    try:
-        result = subprocess.run(  # noqa: S603
-            [gcloud_path, "version", "--format=json"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    version = payload.get("Google Cloud SDK")
-    return version if isinstance(version, str) and version else None
 
 
 def _is_mise_shim_path(path: str) -> bool:

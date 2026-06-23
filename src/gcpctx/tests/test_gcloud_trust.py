@@ -33,6 +33,8 @@ from gcpctx.settings import UserSettings
 if TYPE_CHECKING:
     from pathlib import Path
 
+STALE_PIN = "/no/such/gcpctx-stale-gcloud-pin"
+
 
 def _unset_user_settings() -> UserSettings:
     return UserSettings()
@@ -85,7 +87,7 @@ def test_resolve_gcloud_path_falls_back_when_stale_pin(
 ) -> None:
     monkeypatch.setattr(
         "gcpctx.gcloud_trust.load_settings",
-        lambda: UserSettings(gcloud_path="/usr/bin/gcloud"),
+        lambda: UserSettings(gcloud_path=STALE_PIN),
     )
     gcloud_script = fake_gcloud.parent / "gcloud"
     assert resolve_gcloud_path() == str(gcloud_script)
@@ -99,13 +101,14 @@ def test_resolve_trusted_gcloud_warns_on_stale_pin(
     clear_fingerprint_cache()
     monkeypatch.setattr(
         "gcpctx.gcloud_trust.load_settings",
-        lambda: UserSettings(gcloud_path="/usr/bin/gcloud"),
+        lambda: UserSettings(gcloud_path=STALE_PIN),
     )
     gcloud_script = fake_gcloud.parent / "gcloud"
     result = resolve_trusted_gcloud(project_tree)
     assert result.path == str(gcloud_script.resolve())
     assert any(
-        "Pinned gcloud_path '/usr/bin/gcloud' not found" in warning for warning in result.warnings
+        "Pinned gcloud_path '/no/such/gcpctx-stale-gcloud-pin' not found" in warning
+        for warning in result.warnings
     )
 
 
@@ -114,10 +117,10 @@ def test_resolve_gcloud_path_fails_when_stale_pin_and_no_path(
 ) -> None:
     monkeypatch.setattr(
         "gcpctx.gcloud_trust.load_settings",
-        lambda: UserSettings(gcloud_path="/usr/bin/gcloud"),
+        lambda: UserSettings(gcloud_path=STALE_PIN),
     )
     monkeypatch.setenv("PATH", "")
-    with pytest.raises(GcloudNotFoundError, match="pinned gcloud_path '/usr/bin/gcloud' not found"):
+    with pytest.raises(GcloudNotFoundError, match=f"pinned gcloud_path {STALE_PIN!r} not found"):
         resolve_gcloud_path()
 
 
@@ -150,10 +153,13 @@ def test_toolchain_warnings_silent_when_system_gcloud(
     clear_fingerprint_cache()
     monkeypatch.setattr("gcpctx.gcloud_trust.load_settings", _unset_user_settings)
     system_bin = tmp_path / "opt" / "homebrew" / "bin"
-    system_bin.mkdir(parents=True)
+    system_bin.mkdir(parents=True, mode=0o700)
     _write_executable_gcloud(system_bin / "gcloud")
     monkeypatch.setenv("PATH", str(system_bin))
 
-    result = resolve_trusted_gcloud(project_tree)
+    policy = SecurityPolicy(
+        gcloud=GcloudPolicy(deny_if_under_cwd=False, deny_world_writable_parent=False)
+    )
+    result = resolve_trusted_gcloud(project_tree, policy=policy)
     assert result.path == str((system_bin / "gcloud").resolve())
     assert not any("mise" in warning.lower() for warning in result.warnings)

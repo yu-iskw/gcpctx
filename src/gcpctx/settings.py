@@ -18,7 +18,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import tomli_w
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -27,9 +27,6 @@ from gcpctx import paths
 from gcpctx.errors import SettingsViolationError
 from gcpctx.security import ensure_dir, ensure_managed_file, reject_symlink, secure_read_text
 from gcpctx.toolchain import resolve_mise_gcloud_path
-
-if TYPE_CHECKING:
-    pass
 
 
 class SettingsFile(BaseModel):
