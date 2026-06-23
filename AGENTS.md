@@ -154,3 +154,18 @@ Some tools load mirrored skills under `.agents/skills/` instead of `.claude/`. O
 - **`.gemini/settings.json`** — Gemini CLI project context
 - **`.cursor/rules/`** — Optional Cursor rules (e.g. Always Apply); see [Cursor: Rules](https://cursor.com/docs/rules)
 - **[`.codex/config.toml`](.codex/config.toml)** — Optional Codex defaults (sandbox, approvals); links above under **OpenAI Codex**
+
+## Learned User Preferences
+
+- README.md is for end users (include `uvx`, IDE, and coding-agent usage); CONTRIBUTING.md is for gcpctx package developers.
+- Prefer minimal, simple implementations; avoid over-engineering (token brokers, supervisors, extra abstractions) unless a concrete need is proven.
+- Record significant gcpctx architectural decisions as ADRs in `docs/adr/` before implementing the code they govern, using the manage-adr workflow.
+- When implementing from an attached plan, do not edit the plan file itself.
+
+## Learned Workspace Facts
+
+- Local `.gcpctx.toml` for personal test config is gitignored; do not commit it.
+- mise `scan-osv` runs `osv-scanner scan --lockfile=uv.lock` only (not the whole repo).
+- `ensure_initialized` sets isolated project/impersonation config and ADC login, but not `gcloud auth login`; `Adc: initialized` means client-library ADC exists, not that the gcloud CLI has a credentialed account.
+- gcpctx design rationale lives in ADRs 0003–0008 under `docs/adr/` (0008 covers `gcpctx run --` process-scoped execution).
+- gcloud integration tests use the `fake_gcloud` pytest fixture in `conftest.py` to avoid real `gcloud` subprocess calls and ADC login hangs.
