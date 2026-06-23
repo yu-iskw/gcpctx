@@ -15,74 +15,76 @@
 
 from __future__ import annotations
 
+from gcpctx.exit_codes import ExitCode
+
 
 class GcpctxError(Exception):
     """Base exception for gcpctx errors."""
 
-    exit_code: int = 1
+    exit_code: int = ExitCode.GENERIC_ERROR
 
 
 class ConfigNotFoundError(GcpctxError):
     """Raised when .gcpctx.toml cannot be found."""
 
-    exit_code = 2
+    exit_code = ExitCode.CONFIG_NOT_FOUND
 
 
 class ConfigValidationError(GcpctxError):
     """Raised when .gcpctx.toml fails validation."""
 
-    exit_code = 2
+    exit_code = ExitCode.CONFIG_SCHEMA_ERROR
 
 
 class ApprovalRequiredError(GcpctxError):
     """Raised when activation requires approval that is missing."""
 
-    exit_code = 3
+    exit_code = ExitCode.APPROVAL_REQUIRED
 
 
 class UnsafePermissionError(GcpctxError):
     """Raised when config or state files have unsafe permissions."""
 
-    exit_code = 4
+    exit_code = ExitCode.UNSAFE_FILESYSTEM
 
 
 class GcloudNotFoundError(GcpctxError):
     """Raised when gcloud is not available on PATH."""
 
-    exit_code = 5
+    exit_code = ExitCode.GCLOUD_TRUST_FAILURE
 
 
 class GcloudCommandError(GcpctxError):
     """Raised when a gcloud subprocess fails."""
 
-    exit_code = 5
+    exit_code = ExitCode.GCLOUD_TRUST_FAILURE
 
 
 class CredentialConflictError(GcpctxError):
     """Raised when GOOGLE_APPLICATION_CREDENTIALS conflicts with activation."""
 
-    exit_code = 6
+    exit_code = ExitCode.POLICY_VIOLATION
 
 
 class UnsupportedPlatformError(GcpctxError):
     """Raised when gcpctx is run on an unsupported platform."""
 
-    exit_code = 8
+    exit_code = ExitCode.UNSUPPORTED_PLATFORM
 
 
 class PolicyViolationError(GcpctxError):
     """Raised when an operation violates the active security policy."""
 
-    exit_code = 7
+    exit_code = ExitCode.POLICY_VIOLATION
 
 
 class SettingsViolationError(GcpctxError):
     """Raised when user settings.toml fails validation."""
 
-    exit_code = 2
+    exit_code = ExitCode.CONFIG_SCHEMA_ERROR
 
 
 class GcloudTrustError(GcpctxError):
     """Raised when the gcloud binary fails trust validation."""
 
-    exit_code = 5
+    exit_code = ExitCode.GCLOUD_TRUST_FAILURE

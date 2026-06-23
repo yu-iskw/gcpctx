@@ -15,9 +15,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess  # nosec B404
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
@@ -76,6 +78,74 @@ def find_matching_approval(
             continue
         return record
     return None
+
+
+def find_identity_approval(ctx: ResolvedProjectContext) -> ApprovalRecord | None:
+    """Return the newest identity-matching approval regardless of expiry or gcloud binding."""
+    store = load_store()
+    root_str = str(ctx.root.resolve())
+    matches = [r for r in store.approvals if _identity_matches(r, ctx, root_str)]
+    if not matches:
+        return None
+    return max(matches, key=lambda record: record.approved_at)
+
+
+def find_expired_remembered_approval(ctx: ResolvedProjectContext) -> ApprovalRecord | None:
+    """Return a remembered approval that matches identity but has expired."""
+    record = find_identity_approval(ctx)
+    if record is None or record.mode != "remembered":
+        return None
+    if not _is_expired(record):
+        return None
+    return record
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalDoctorState:
+    """Approval facts for doctor checks from a single store read."""
+
+    matching: ApprovalRecord | None
+    identity: ApprovalRecord | None
+    expired_remembered: ApprovalRecord | None
+
+
+def resolve_approval_doctor_state(
+    ctx: ResolvedProjectContext,
+    *,
+    policy: SecurityPolicy,
+    gcloud_trust: GcloudTrustResult | None,
+) -> ApprovalDoctorState:
+    """Load approval state once for doctor approval and approval_expiry checks."""
+    store = load_store()
+    root_str = str(ctx.root.resolve())
+    identity_matches = [r for r in store.approvals if _identity_matches(r, ctx, root_str)]
+    identity = (
+        max(identity_matches, key=lambda record: record.approved_at) if identity_matches else None
+    )
+    matching: ApprovalRecord | None = None
+    for record in store.approvals:
+        if not _record_matches(record, ctx, root_str, policy, gcloud_trust):
+            continue
+        if _is_expired(record):
+            continue
+        matching = record
+        break
+    expired_remembered: ApprovalRecord | None = None
+    if identity is not None and identity.mode == "remembered" and _is_expired(identity):
+        expired_remembered = identity
+    return ApprovalDoctorState(
+        matching=matching,
+        identity=identity,
+        expired_remembered=expired_remembered,
+    )
+
+
+def approval_evidence_id(record: ApprovalRecord) -> str:
+    """Return a stable, non-secret identifier for an approval record."""
+    digest = hashlib.sha256(
+        f"{record.root}:{record.profile}:{record.approved_at}".encode()
+    ).hexdigest()
+    return f"sha256:{digest[:16]}"
 
 
 def add_approval(

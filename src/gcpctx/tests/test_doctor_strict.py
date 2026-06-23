@@ -41,6 +41,6 @@ def test_doctor_strict_without_policy_file(
 
     result = run_doctor(project_tree, interactive=False, strict=True)
 
-    policy_check = next(c for c in result.checks if c.name == "policy")
-    assert policy_check.status == "ok"
-    assert "gcloud_trust" in {check.name for check in result.checks}
+    policy_check = next(c for c in result.checks if c.id == "policy")
+    assert policy_check.status == "pass"
+    assert "gcloud_trust" in {check.id for check in result.checks}

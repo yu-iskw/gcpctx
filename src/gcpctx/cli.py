@@ -43,6 +43,7 @@ from gcpctx.errors import (
     GcpctxError,
     UnsupportedPlatformError,
 )
+from gcpctx.exit_codes import ExitCode
 from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.logging import log_stderr
 from gcpctx.models import ActivationRequest, ActivationResult
@@ -101,7 +102,7 @@ def _require_project_context(
         return resolve_project_context((cwd or Path.cwd()).resolve(), profile)
     except ConfigNotFoundError:
         typer.echo("No .gcpctx.toml found", err=True)
-        raise typer.Exit(code=2) from None
+        raise typer.Exit(code=int(ExitCode.CONFIG_NOT_FOUND)) from None
     except GcpctxError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=exc.exit_code) from exc
@@ -274,9 +275,14 @@ def doctor(
         typer.echo(result.model_dump_json(indent=2))
         raise typer.Exit(code=result.exit_code)
     console = Console()
-    table = Table("Check", "Status", "Message")
+    table = Table("Check", "Status", "Message", "Remediation")
     for check in result.checks:
-        table.add_row(check.name, check.status, check.message)
+        table.add_row(
+            check.id,
+            check.status,
+            check.message,
+            check.remediation.display_text() if check.remediation else "",
+        )
     console.print(table)
     raise typer.Exit(code=result.exit_code)
 
