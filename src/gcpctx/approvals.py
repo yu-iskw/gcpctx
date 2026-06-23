@@ -16,7 +16,8 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import shutil
+import subprocess  # nosec B404
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
@@ -172,7 +173,8 @@ def prompt_for_approval(  # noqa: C901, PLR0912
     if ctx.profile.quota_project:
         console.print(f"Quota project:    {ctx.profile.quota_project}")
     if ctx.profile.env:
-        console.print(f"Env overrides:    {', '.join(sorted(ctx.profile.env))}")
+        env_keys = ", ".join(sorted(ctx.profile.env))
+        console.print(f"Env overrides:    {env_keys}")
     if gcloud_trust is not None:
         fp = gcloud_trust.sha256[:12] if gcloud_trust.sha256 else "unavailable"
         console.print(f"gcloud path:      {gcloud_trust.path}")
@@ -247,7 +249,7 @@ def _record_matches(  # noqa: PLR0911
     policy: SecurityPolicy,
     gcloud_trust: GcloudTrustResult | None,
 ) -> bool:
-    if not (_identity_matches(record, ctx, root_str)):
+    if not _identity_matches(record, ctx, root_str):
         return False
     if record.schema_version < APPROVAL_SCHEMA_V2 and policy.strict:
         return False
@@ -281,16 +283,19 @@ def _git_metadata(root: Path) -> tuple[str | None, str | None]:
     return remote, branch
 
 
-def _git_output(root: Path, args: list[str]) -> str | None:
+def _git_output(root: Path, args: list[str]) -> str | None:  # noqa: PLR0911
+    git = shutil.which("git")
+    if git is None:
+        return None
     try:
         result = subprocess.run(  # noqa: S603
-            ["git", *args],  # noqa: S607
+            [git, *args],
             cwd=root,
             capture_output=True,
             text=True,
             check=False,
             timeout=5,
-        )
+        )  # nosec B603
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:

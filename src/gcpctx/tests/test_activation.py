@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from gcpctx import paths
 from gcpctx.activation import activate, deactivate, missing_config_result
 from gcpctx.approvals import add_approval, find_matching_approval
 from gcpctx.errors import ApprovalRequiredError, CredentialConflictError
@@ -95,8 +96,6 @@ def test_gac_conflict_non_interactive(
 def test_once_approval_preserved_when_adc_not_initialized(
     project_tree: Path,
 ) -> None:
-    from gcpctx import paths
-
     policy_path = paths.user_config_path() / "policy.toml"
     policy_path.write_text(
         "version = 1\n\n[policy]\nrequire_initialized_adc_for_hook = true\n",
