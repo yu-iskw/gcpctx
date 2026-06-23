@@ -68,6 +68,21 @@ def reject_symlink(path: Path) -> None:
         raise UnsafePermissionError(msg)
 
 
+def _verify_written_file(path: Path) -> None:
+    """Verify file type, ownership, and mode after atomic replace."""
+    st = path.stat()
+    if not stat.S_ISREG(st.st_mode):
+        msg = f"expected regular file at {path}"
+        raise UnsafePermissionError(msg)
+    if st.st_uid != os.geteuid():
+        msg = f"unsafe file ownership on {path}: uid {st.st_uid}"
+        raise UnsafePermissionError(msg)
+    mode = st.st_mode & 0o777
+    if mode != FILE_MODE:
+        msg = f"unsafe file permissions on {path}: {oct(mode)}"
+        raise UnsafePermissionError(msg)
+
+
 def ensure_dir(path: Path) -> None:
     """Create directory with restrictive permissions."""
     reject_symlink(path)
@@ -169,10 +184,13 @@ def secure_atomic_write_text(path: Path, content: str, *, managed_state: bool = 
         finally:
             os.close(dir_fd)
         if _chmod_supported():
-            mode = path.stat().st_mode & 0o777
-            if mode != FILE_MODE:
-                msg = f"unsafe file permissions on {path}: {oct(mode)}"
-                raise UnsafePermissionError(msg)
+            if managed_state:
+                _verify_written_file(path)
+            else:
+                mode = path.stat().st_mode & 0o777
+                if mode != FILE_MODE:
+                    msg = f"unsafe file permissions on {path}: {oct(mode)}"
+                    raise UnsafePermissionError(msg)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)

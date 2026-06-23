@@ -41,6 +41,13 @@ DEFAULT_DENIED_ENV_KEYS = frozenset(
 
 DEPRECATED_PROFILE_ENV_KEYS = frozenset({"CLOUDSDK_CORE_PROJECT"})
 
+BLOCKED_PROFILE_EXPORT_ENV_KEYS = DEPRECATED_PROFILE_ENV_KEYS | DEFAULT_DENIED_ENV_KEYS
+
+
+def profile_env_for_export(env: dict[str, str]) -> dict[str, str]:
+    """Return profile env entries safe to merge into activation exports."""
+    return {key: value for key, value in env.items() if key not in BLOCKED_PROFILE_EXPORT_ENV_KEYS}
+
 
 @dataclass(frozen=True)
 class GcloudPolicy:

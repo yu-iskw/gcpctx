@@ -27,7 +27,7 @@ from gcpctx.approvals import (
 from gcpctx.errors import ConfigNotFoundError, CredentialConflictError
 from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.models import ActivationRequest, ActivationResult
-from gcpctx.policy import load_policy
+from gcpctx.policy import load_policy, profile_env_for_export
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 
 if TYPE_CHECKING:
@@ -161,12 +161,13 @@ def _build_exports(
         "GCPCTX_SERVICE_ACCOUNT": ctx.service_account,
         "GCPCTX_CONTEXT_ID": ctx_id,
         "CLOUDSDK_CONFIG": str(config_dir),
-        **ctx.profile.env,
+        **profile_env_for_export(ctx.profile.env),
     }
     if ctx.profile.region:
         exports["CLOUDSDK_COMPUTE_REGION"] = ctx.profile.region
     if ctx.profile.zone:
         exports["CLOUDSDK_COMPUTE_ZONE"] = ctx.profile.zone
+    # Fail-closed: project identity cannot be overridden by profile.env.
     exports["CLOUDSDK_CORE_PROJECT"] = ctx.project
     return exports
 

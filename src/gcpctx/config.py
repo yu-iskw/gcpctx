@@ -37,7 +37,7 @@ from gcpctx.policy import (
 )
 from gcpctx.security import (
     check_config_permissions,
-    ensure_managed_file,
+    ensure_file,
     reject_symlink,
     secure_read_text,
 )
@@ -112,7 +112,7 @@ def select_profile(config: GcpctxConfig, profile: str | None) -> tuple[str, Prof
 def save_config(root: Path, config: GcpctxConfig) -> None:
     """Write validated project configuration to .gcpctx.toml."""
     payload = config.model_dump(mode="json", exclude_none=True)
-    ensure_managed_file(config_path(root), tomli_w.dumps(payload))
+    ensure_file(config_path(root), tomli_w.dumps(payload))
 
 
 def resolve_existing_gcloud_binary(gcloud_path: str | Path) -> Path:

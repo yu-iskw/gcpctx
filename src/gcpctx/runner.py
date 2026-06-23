@@ -15,10 +15,10 @@
 
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404
 
 
 def run_command(argv: list[str], env: dict[str, str]) -> int:
     """Run *argv* with *env*; inherit stdin/stdout/stderr from the parent."""
-    completed = subprocess.run(argv, env=env, check=False)
+    completed = subprocess.run(argv, env=env, check=False)  # nosec B603
     return completed.returncode

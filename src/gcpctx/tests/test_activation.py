@@ -75,6 +75,22 @@ def test_activate_with_approval(project_tree: Path) -> None:
     assert result.exports["GCPCTX_ACTIVE"] == "1"
 
 
+def test_activate_exports_cloudsdk_core_project_matches_profile(project_tree: Path) -> None:
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered")
+    result = activate(
+        ActivationRequest(
+            cwd=project_tree,
+            shell_name="zsh",
+            interactive=False,
+            skip_gcloud_init=True,
+        )
+    )
+    assert result.active is True
+    assert result.exports["CLOUDSDK_CORE_PROJECT"] == ctx.project
+    assert result.exports["GCPCTX_PROJECT"] == ctx.project
+
+
 def test_gac_conflict_non_interactive(
     project_tree: Path,
     tmp_path: Path,

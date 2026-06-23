@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -58,7 +58,7 @@ def run_gcloud(
     """Run gcloud with isolated CLOUDSDK_CONFIG."""
     gcloud = gcloud_executable or find_gcloud()
     env = _cloudsdk_env(cloudsdk_config, extra_env)
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603
         [gcloud, *args],
         capture_output=True,
         text=True,

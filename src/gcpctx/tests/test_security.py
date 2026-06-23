@@ -96,3 +96,58 @@ def test_ensure_secure_tree_repairs_loose_managed_dir(
     contexts.chmod(LOOSE_MODE)
     ensure_secure_tree(contexts / "ctx-id" / "gcloud")
     assert (contexts.stat().st_mode & 0o777) == DIR_MODE
+
+
+def test_managed_write_rejects_symlink_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    managed_parent = home / ".config"
+    managed_parent.mkdir()
+    managed = managed_parent / "gcpctx"
+    real = tmp_path / "real"
+    real.mkdir()
+    managed.symlink_to(real)
+    monkeypatch.setattr(paths, "user_config_path", lambda: managed)
+    target = managed / "state.json"
+    with pytest.raises(UnsafePermissionError):
+        ensure_managed_file(target, "{}")
+
+
+def test_managed_write_verifies_regular_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    managed = tmp_path / "config" / "gcpctx"
+    monkeypatch.setattr(paths, "user_config_path", lambda: managed)
+    target = managed / "state.json"
+    ensure_managed_file(target, "{}")
+    st = target.stat()
+    assert stat.S_ISREG(st.st_mode)
+    assert (st.st_mode & 0o777) == FILE_MODE
+
+
+def test_atomic_write_replaces_existing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    managed = tmp_path / "config" / "gcpctx"
+    monkeypatch.setattr(paths, "user_config_path", lambda: managed)
+    target = managed / "state.json"
+    ensure_managed_file(target, "v1")
+    ensure_managed_file(target, "v2")
+    assert target.read_text(encoding="utf-8") == "v2"
+
+
+def test_managed_write_skips_filesystem_root_symlinks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Parent symlink checks must not walk past managed roots (e.g. /var on macOS)."""
+    managed = tmp_path / "config" / "gcpctx"
+    monkeypatch.setattr(paths, "user_config_path", lambda: managed)
+    target = managed / "approvals.json"
+    ensure_managed_file(target, "{}")
+    assert target.read_text(encoding="utf-8") == "{}"

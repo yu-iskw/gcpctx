@@ -287,11 +287,14 @@ def approve(
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
 ) -> None:
     """Remember approval for the current directory/profile."""
-    ctx = _require_project_context(cwd, profile)
-    policy = load_policy()
-    trust = resolve_trusted_gcloud(ctx.root, policy=policy, configured_path=ctx.gcloud_path)
-    add_approval(ctx, mode="remembered", policy=policy, gcloud_trust=trust)
-    typer.echo(f"Remembered approval for profile {ctx.profile_name!r} at {ctx.root}")
+    try:
+        ctx = _require_project_context(cwd, profile)
+        policy = load_policy()
+        trust = resolve_trusted_gcloud(ctx.root, policy=policy, configured_path=ctx.gcloud_path)
+        add_approval(ctx, mode="remembered", policy=policy, gcloud_trust=trust)
+        typer.echo(f"Remembered approval for profile {ctx.profile_name!r} at {ctx.root}")
+    except GcpctxError as exc:
+        _handle_error(exc)
 
 
 @app.command()
@@ -362,13 +365,14 @@ def reset(
 def use_profile(
     profile_name: Annotated[str, typer.Argument(help="Profile to activate.")],
     shell: ShellOpt = "zsh",
+    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
 ) -> None:
     """Emit shell code to switch profile (source in parent shell)."""
     shell_name = _shell_from_option(shell)
     try:
         result = _run_activation(
             ActivationRequest(
-                cwd=Path.cwd().resolve(),
+                cwd=(cwd or Path.cwd()).resolve(),
                 shell_name=shell_name,
                 profile=profile_name,
                 interactive=sys.stdin.isatty(),
