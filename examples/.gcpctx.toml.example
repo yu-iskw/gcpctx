@@ -1,0 +1,6 @@
+version = 1
+default_profile = "main"
+
+[profiles.main]
+project = "<project_id>"
+service_account = "<main_sa_email>"
