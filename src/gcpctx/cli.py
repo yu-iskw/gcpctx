@@ -30,12 +30,20 @@ from gcpctx.approvals import add_approval, revoke_approval
 from gcpctx.config import load_config, render_init_project_toml, validate_init_project_inputs
 from gcpctx.discovery import config_path, find_project_root
 from gcpctx.doctor import run_doctor, status_info
-from gcpctx.errors import ConfigNotFoundError, ConfigValidationError, GcpctxError
+from gcpctx.errors import (
+    ConfigNotFoundError,
+    ConfigValidationError,
+    GcpctxError,
+    UnsupportedPlatformError,
+)
+from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.logging import log_stderr
 from gcpctx.models import ActivationRequest, ActivationResult
+from gcpctx.policy import load_policy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 from gcpctx.runner import run_command
-from gcpctx.security import ensure_file
+from gcpctx.security import ensure_file, is_posix_platform
+from gcpctx.settings import UserSettings, load_settings, save_settings
 from gcpctx.shell import (
     bash_hook_snippet,
     render_shell,
@@ -48,10 +56,29 @@ app = typer.Typer(
     help="Directory-scoped Google Cloud service account impersonation contexts.",
     no_args_is_help=True,
 )
+
+
+@app.callback()
+def main() -> None:
+    """Fail closed on unsupported platforms before any subcommand runs."""
+    try:
+        if not is_posix_platform():
+            msg = (
+                "gcpctx requires a POSIX platform (Linux or macOS). "
+                "Windows is not supported until filesystem ACL checks are implemented."
+            )
+            raise UnsupportedPlatformError(msg)  # noqa: TRY301
+    except UnsupportedPlatformError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=exc.exit_code) from exc
+
+
 init_app = typer.Typer(help="Install shell integration.")
 hook_app = typer.Typer(help="Shell hook commands.")
+config_app = typer.Typer(help="User settings.")
 app.add_typer(init_app, name="init")
 app.add_typer(hook_app, name="hook")
+app.add_typer(config_app, name="config")
 
 ShellOpt = Annotated[
     Literal["bash", "zsh"],
@@ -116,7 +143,7 @@ def profiles(
     if root is None:
         typer.echo("No .gcpctx.toml found", err=True)
         raise typer.Exit(code=2)
-    config = load_config(root)
+    config = load_config(root, policy=load_policy())
     typer.echo(f"Profiles in {config_path(root)}\n")
     for name, prof in config.profiles.items():
         marker = "*" if name == config.default_profile else " "
@@ -228,10 +255,15 @@ def status(
 def doctor(
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
     profile: Annotated[str | None, typer.Option(help="Profile name.")] = None,
+    strict: Annotated[bool, typer.Option("--strict", help="Fail on warnings.")] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Run diagnostic checks."""
-    result = run_doctor((cwd or Path.cwd()).resolve(), profile=profile)
+    result = run_doctor(
+        (cwd or Path.cwd()).resolve(),
+        profile=profile,
+        strict=strict,
+    )
     if json_output:
         typer.echo(result.model_dump_json(indent=2))
         raise typer.Exit(code=result.exit_code)
@@ -250,7 +282,9 @@ def approve(
 ) -> None:
     """Remember approval for the current directory/profile."""
     ctx = _require_project_context(cwd, profile)
-    add_approval(ctx, mode="remembered")
+    policy = load_policy()
+    trust = resolve_trusted_gcloud(ctx.root, policy=policy)
+    add_approval(ctx, mode="remembered", policy=policy, gcloud_trust=trust)
     typer.echo(f"Remembered approval for profile {ctx.profile_name!r} at {ctx.root}")
 
 
@@ -410,6 +444,29 @@ def init_project(
     content = render_init_project_toml(project=proj, service_account=sa, profile=profile)
     ensure_file(dest, content)
     typer.echo(f"Wrote {dest}")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Show user settings."""
+    settings = load_settings()
+    if settings.gcloud_path:
+        typer.echo(f"gcloud_path = {settings.gcloud_path}")
+    else:
+        typer.echo("gcloud_path = (unset, using PATH)")
+
+
+@config_app.command("set-gcloud-path")
+def config_set_gcloud_path(
+    path: Annotated[Path, typer.Argument(help="Absolute path to gcloud binary.")],
+) -> None:
+    """Pin the trusted gcloud binary path."""
+    resolved = path.resolve()
+    if not resolved.is_file():
+        typer.echo(f"gcloud binary not found: {resolved}", err=True)
+        raise typer.Exit(code=2)
+    save_settings(UserSettings(gcloud_path=str(resolved)))
+    typer.echo(f"Set gcloud_path to {resolved}")
 
 
 @init_app.command("zsh")

@@ -59,6 +59,7 @@ class ActivationResult(BaseModel):
 
     active: bool
     noop: bool = False
+    readiness: Literal["ready", "approved_not_initialized", "blocked"] = "blocked"
     root: Path | None = None
     profile: str | None = None
     project: str | None = None
@@ -80,7 +81,10 @@ class ApprovalRecord(BaseModel):
     config_sha256: str
     approved_at: str
     mode: Literal["once", "remembered"]
-    schema_version: int = 1
+    schema_version: int = 2
+    gcloud_path: str | None = None
+    gcloud_sha256: str | None = None
+    expires_at: str | None = None
 
 
 class ApprovalsStore(BaseModel):

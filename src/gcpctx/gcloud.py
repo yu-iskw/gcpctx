@@ -23,10 +23,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from gcpctx.errors import GcloudCommandError, GcloudNotFoundError
+from gcpctx.errors import GcloudCommandError
+from gcpctx.gcloud_trust import resolve_gcloud_path
 from gcpctx.models import ContextState, ProfileConfig
 from gcpctx.paths import cloudsdk_config_dir, context_state_file
-from gcpctx.security import ensure_dir, ensure_file
+from gcpctx.security import ensure_dir, ensure_managed_file, secure_read_text
 from gcpctx.timeutil import utc_now_iso
 
 if TYPE_CHECKING:
@@ -38,14 +39,10 @@ _SUBPROCESS_TIMEOUT_SECONDS = 120
 
 
 def find_gcloud() -> str:
-    """Return path to gcloud executable."""
+    """Return path to gcloud executable (resolved, optionally cached)."""
     global _GCLOUD_PATH  # noqa: PLW0603
     if _GCLOUD_PATH is None:
-        path = shutil.which("gcloud")
-        if path is None:
-            msg = "gcloud not found on PATH"
-            raise GcloudNotFoundError(msg)
-        _GCLOUD_PATH = path
+        _GCLOUD_PATH = resolve_gcloud_path()
     return _GCLOUD_PATH
 
 
@@ -158,7 +155,7 @@ def ensure_initialized(ctx: InitContext) -> ContextState:
         last_checked_at=now,
         last_initialized_at=now,
     )
-    ensure_file(state_path, state.model_dump_json(indent=2))
+    ensure_managed_file(state_path, state.model_dump_json(indent=2))
     return state
 
 
@@ -203,8 +200,8 @@ def _load_cached_state(
 
 def _read_state_file(state_path: Path) -> ContextState | None:
     try:
-        return ContextState.model_validate_json(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, ValueError):
+        return ContextState.model_validate_json(secure_read_text(state_path))
+    except (json.JSONDecodeError, ValueError, OSError):
         return None
 
 
@@ -223,5 +220,5 @@ def _touch_state_checked(state_path: Path, state: ContextState) -> ContextState:
     if datetime.now(tz=UTC) - checked <= timedelta(seconds=DEBOUNCE_SECONDS):
         return state
     updated = state.model_copy(update={"last_checked_at": utc_now_iso()})
-    ensure_file(state_path, updated.model_dump_json(indent=2))
+    ensure_managed_file(state_path, updated.model_dump_json(indent=2))
     return updated

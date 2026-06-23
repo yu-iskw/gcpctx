@@ -34,17 +34,8 @@ runner = CliRunner()
 
 
 @pytest.fixture(autouse=True)
-def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cache = tmp_path / "cache" / "gcpctx"
-    config = tmp_path / "config" / "gcpctx"
-    cache.mkdir(parents=True)
-    config.mkdir(parents=True)
-    cache.chmod(0o700)
-    config.chmod(0o700)
-    monkeypatch.setattr("gcpctx.paths.user_cache_path", lambda: cache)
-    monkeypatch.setattr("gcpctx.paths.user_config_path", lambda: config)
-    monkeypatch.setattr("gcpctx.paths.context_base_dir", lambda: cache / "contexts")
-    monkeypatch.setattr("gcpctx.paths.approvals_file", lambda: config / "approvals.json")
+def isolated_state() -> None:
+    """Use global conftest state isolation."""
 
 
 def test_child_environ_applies_exports_and_unsets() -> None:
@@ -110,7 +101,7 @@ def test_run_cli_invokes_command(
         app,
         ["run", "--cwd", str(project_tree), "--", "env"],
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.stderr
     assert fake_gcloud.read_text(encoding="utf-8").strip()
     env = captured["env"]
     assert isinstance(env, dict)

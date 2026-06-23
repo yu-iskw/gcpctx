@@ -13,6 +13,8 @@ jobs:
       url: https://pypi.org/p/gcpctx
     permissions:
       id-token: write
+      contents: write
+      attestations: write
     defaults:
       run:
         shell: bash
@@ -28,8 +30,25 @@ jobs:
       - name: Build distributions
         run: |
           uv build
+      - name: Generate SBOM
+        run: |
+          pip install cyclonedx-bom
+          cyclonedx-py sbom -o dist/gcpctx-sbom.json dist/*.whl
       - name: Publish
         uses: pypa/gh-action-pypi-publish@v1.14.0
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/gcpctx-sbom.json
 
   test-published-package:
     needs:
@@ -50,7 +69,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "${{ matrix.python-version }}"
-      # It takes some time when the package gets available.
       - name: Sleep
         run: |
           sleep 30

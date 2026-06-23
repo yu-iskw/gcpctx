@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING
 from gcpctx.config import hash_config_bytes, load_config_from_bytes, select_profile
 from gcpctx.discovery import config_path, find_project_root
 from gcpctx.errors import ConfigNotFoundError
-from gcpctx.security import check_config_permissions
+from gcpctx.policy import SecurityPolicy, load_policy
+from gcpctx.security import check_config_permissions, reject_symlink, secure_read_text
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -50,6 +51,8 @@ class ResolvedProjectContext:
 def resolve_project_context(
     cwd: Path,
     profile: str | None = None,
+    *,
+    policy: SecurityPolicy | None = None,
 ) -> ResolvedProjectContext:
     """Discover, validate, and load project context from *cwd*."""
     root = find_project_root(cwd)
@@ -57,8 +60,11 @@ def resolve_project_context(
         msg = "No .gcpctx.toml found"
         raise ConfigNotFoundError(msg)
     check_config_permissions(root)
-    raw = config_path(root).read_bytes()
-    config = load_config_from_bytes(raw)
+    cfg_path = config_path(root)
+    reject_symlink(cfg_path)
+    raw = secure_read_text(cfg_path).encode("utf-8")
+    active_policy = policy or load_policy()
+    config = load_config_from_bytes(raw, policy=active_policy)
     profile_name, prof = select_profile(config, profile)
     return ResolvedProjectContext(
         root=root,

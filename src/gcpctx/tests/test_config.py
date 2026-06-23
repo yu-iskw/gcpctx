@@ -96,3 +96,30 @@ def test_validate_init_project_inputs_rejects_invalid_project() -> None:
             service_account="a@my-dev-project.iam.gserviceaccount.com",
             profile="dev",
         )
+
+
+def test_rejects_cloudsdk_core_project_env(tmp_path: Path) -> None:
+    root = tmp_path / "r"
+    root.mkdir()
+    (root / ".gcpctx.toml").write_text(
+        'version = 1\ndefault_profile = "dev"\n[profiles.dev]\n'
+        'project = "my-dev-project"\n'
+        'service_account = "a@my-dev-project.iam.gserviceaccount.com"\n'
+        '[profiles.dev.env]\nCLOUDSDK_CORE_PROJECT = "other-project"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigValidationError, match="CLOUDSDK_CORE_PROJECT"):
+        load_config(root)
+
+
+def test_service_account_project_mismatch(tmp_path: Path) -> None:
+    root = tmp_path / "r"
+    root.mkdir()
+    (root / ".gcpctx.toml").write_text(
+        'version = 1\ndefault_profile = "dev"\n[profiles.dev]\n'
+        'project = "my-dev-project"\n'
+        'service_account = "agent@other-project.iam.gserviceaccount.com"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigValidationError, match="does not match"):
+        load_config(root)

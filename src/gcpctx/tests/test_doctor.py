@@ -29,18 +29,8 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cache = tmp_path / "cache" / "gcpctx"
-    config = tmp_path / "config" / "gcpctx"
-    cache.mkdir(parents=True)
-    config.mkdir(parents=True)
-    cache.chmod(0o700)
-    config.chmod(0o700)
-    monkeypatch.setattr("gcpctx.paths.user_cache_path", lambda: cache)
-    monkeypatch.setattr("gcpctx.doctor.user_cache_path", lambda: cache)
-    monkeypatch.setattr("gcpctx.paths.user_config_path", lambda: config)
-    monkeypatch.setattr("gcpctx.paths.context_base_dir", lambda: cache / "contexts")
-    monkeypatch.setattr("gcpctx.paths.approvals_file", lambda: config / "approvals.json")
+def isolated_state() -> None:
+    """Use global conftest state isolation."""
 
 
 @pytest.mark.usefixtures("fake_gcloud")
@@ -62,7 +52,7 @@ def test_doctor_happy_path(
     names = {check.name for check in result.checks}
     assert "config" in names
     assert "profile" in names
-    assert "approval" in names
+    assert "approval" in names or "approval_expiry" in names
     assert "isolation" in names
     config_check = next(c for c in result.checks if c.name == "config")
     isolation_check = next(c for c in result.checks if c.name == "isolation")

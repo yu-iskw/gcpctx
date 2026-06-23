@@ -29,11 +29,8 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def isolated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cache = tmp_path / "cache" / "gcpctx"
-    cache.mkdir(parents=True)
-    monkeypatch.setattr("gcpctx.paths.user_cache_path", lambda: cache)
-    monkeypatch.setattr("gcpctx.paths.context_base_dir", lambda: cache / "contexts")
+def isolated_cache() -> None:
+    """Use global conftest state isolation."""
 
 
 def test_run_gcloud_passes_cloudsdk_config(

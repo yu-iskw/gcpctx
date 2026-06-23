@@ -11,24 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""gcpctx package."""
+"""Platform gate tests."""
 
 from __future__ import annotations
 
-__version__ = "0.2.0"
+import sys
 
-from gcpctx.activation import activate, deactivate
-from gcpctx.config import load_config
-from gcpctx.discovery import find_project_root
-from gcpctx.doctor import run_doctor
-from gcpctx.shell import render_shell
+import pytest
+from typer.testing import CliRunner
 
-__all__ = [
-    "__version__",
-    "activate",
-    "deactivate",
-    "find_project_root",
-    "load_config",
-    "render_shell",
-    "run_doctor",
-]
+from gcpctx.cli import app
+
+
+def test_windows_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code == 8
+    assert "POSIX" in result.stderr

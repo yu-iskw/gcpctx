@@ -20,8 +20,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from gcpctx import paths
 from gcpctx.errors import UnsafePermissionError
-from gcpctx.security import DIR_MODE, FILE_MODE, ensure_dir, ensure_file
+from gcpctx.security import (
+    DIR_MODE,
+    FILE_MODE,
+    ensure_dir,
+    ensure_file,
+    ensure_managed_file,
+    reject_symlink,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,23 +37,29 @@ if TYPE_CHECKING:
 LOOSE_MODE = stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO
 
 
-def test_ensure_dir_restrictive(tmp_path: Path) -> None:
-    target = tmp_path / "secret"
+def test_ensure_dir_restrictive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    managed = tmp_path / "config" / "gcpctx"
+    monkeypatch.setattr(paths, "user_config_path", lambda: managed)
+    target = managed / "secret"
     ensure_dir(target)
     mode = target.stat().st_mode & 0o777
     assert mode == DIR_MODE
 
 
-def test_ensure_file_restrictive(tmp_path: Path) -> None:
-    target = tmp_path / "nested" / "file.json"
-    ensure_file(target, "{}")
+def test_ensure_file_restrictive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    managed = tmp_path / "config" / "gcpctx"
+    monkeypatch.setattr(paths, "user_config_path", lambda: managed)
+    target = managed / "nested" / "file.json"
+    ensure_managed_file(target, "{}")
     mode = target.stat().st_mode & 0o777
     assert mode == FILE_MODE
 
 
-def test_unsafe_dir_raises(tmp_path: Path) -> None:
-    target = tmp_path / "loose"
-    target.mkdir()
+def test_unsafe_dir_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    managed = tmp_path / "config" / "gcpctx"
+    monkeypatch.setattr(paths, "user_config_path", lambda: managed)
+    target = managed / "loose"
+    target.mkdir(parents=True)
     target.chmod(LOOSE_MODE)
     with pytest.raises(UnsafePermissionError):
         ensure_dir(target)
@@ -58,3 +72,10 @@ def test_ensure_file_allows_loose_parent_dir(tmp_path: Path) -> None:
     target = parent / ".gcpctx.toml"
     ensure_file(target, "version = 1\n")
     assert (target.stat().st_mode & 0o777) == FILE_MODE
+
+
+def test_reject_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "link"
+    target.symlink_to(tmp_path / "real")
+    with pytest.raises(UnsafePermissionError):
+        reject_symlink(target)

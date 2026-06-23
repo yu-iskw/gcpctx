@@ -21,13 +21,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from gcpctx import gcloud as gcloud_mod
+from gcpctx import audit, gcloud as gcloud_mod, paths
 from gcpctx.approvals import find_matching_approval
 from gcpctx.discovery import find_project_root
 from gcpctx.errors import ConfigNotFoundError, GcpctxError
+from gcpctx.gcloud_trust import GcloudTrustResult, resolve_trusted_gcloud
 from gcpctx.models import DoctorCheck, DoctorResult, ProfileConfig
-from gcpctx.paths import user_cache_path
+from gcpctx.policy import SecurityPolicy, load_policy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
+from gcpctx.security import check_path_permissions, reject_symlink
 
 CheckStatus = Literal["ok", "warning", "error"]
 
@@ -37,6 +39,7 @@ class _CheckCollector:
     """Accumulates doctor checks and computes exit status."""
 
     interactive: bool
+    strict: bool
     checks: list[DoctorCheck] = field(default_factory=list)
     exit_code: int = 0
 
@@ -47,10 +50,12 @@ class _CheckCollector:
         message: str,
         remediation: str | None = None,
     ) -> None:
+        if status == "warning" and self.strict:
+            status = "error"
         self.checks.append(
             DoctorCheck(name=name, status=status, message=message, remediation=remediation)
         )
-        if status == "error" or (status == "warning" and not self.interactive):
+        if status == "error" or (status == "warning" and not self.interactive and not self.strict):
             self.exit_code = max(self.exit_code, _severity_exit(name))
 
     def result(self) -> DoctorResult:
@@ -62,29 +67,40 @@ def run_doctor(
     *,
     profile: str | None = None,
     interactive: bool | None = None,
+    strict: bool = False,
 ) -> DoctorResult:
     """Run diagnostic checks and return aggregated result."""
     is_interactive = sys.stdin.isatty() if interactive is None else interactive
-    collector = _CheckCollector(interactive=is_interactive)
-    _check_gcloud(collector)
+    policy = load_policy()
+    effective_strict = strict or policy.strict
+    collector = _CheckCollector(interactive=is_interactive, strict=effective_strict)
+
+    trust = _resolve_trust(collector, cwd, policy, effective_strict)
     try:
-        ctx = resolve_project_context(cwd, profile)
+        ctx = resolve_project_context(cwd, profile, policy=policy)
     except ConfigNotFoundError:
         collector.add("config", "error", ".gcpctx.toml not found", "Run gcpctx init-project")
-        return DoctorResult(checks=collector.checks, exit_code=collector.exit_code or 2)
+        return _finalize(collector, effective_strict)
     except GcpctxError as exc:
         collector.add("config", "error", str(exc))
-        return DoctorResult(checks=collector.checks, exit_code=collector.exit_code or 2)
+        return _finalize(collector, effective_strict)
 
     collector.add("config", "ok", f"Configuration valid at {ctx.root}")
     collector.add("profile", "ok", f"Profile {ctx.profile_name!r} resolved")
-    _check_approval(collector, ctx)
+    _check_policy(collector, policy)
+    _check_approval(collector, ctx, policy, trust)
     cloudsdk = os.environ.get("CLOUDSDK_CONFIG", "")
     _check_isolation(collector, cloudsdk)
+    _check_env_project(collector, ctx)
     if cloudsdk:
-        _check_gcloud_state(collector, Path(cloudsdk), ctx.profile, is_interactive)
+        _check_gcloud_state(
+            collector, Path(cloudsdk), ctx.profile, is_interactive, effective_strict
+        )
+        if effective_strict:
+            _check_impersonation_iam(collector, Path(cloudsdk), ctx)
+    _check_state_permissions(collector, effective_strict)
     _check_gac(collector, is_interactive)
-    return collector.result()
+    return _finalize(collector, effective_strict)
 
 
 def status_info(cwd: Path) -> dict[str, str]:
@@ -111,10 +127,48 @@ def status_info(cwd: Path) -> dict[str, str]:
     return info
 
 
-def _check_approval(collector: _CheckCollector, ctx: ResolvedProjectContext) -> None:
-    approval = find_matching_approval(ctx)
+def _finalize(collector: _CheckCollector, strict: bool) -> DoctorResult:
+    result = collector.result()
+    if strict and result.exit_code != 0:
+        audit.log_event("doctor_strict_failed", exit_code=result.exit_code)
+    return result
+
+
+def _resolve_trust(
+    collector: _CheckCollector,
+    cwd: Path,
+    policy: SecurityPolicy,
+    strict: bool,
+) -> GcloudTrustResult | None:
+    try:
+        trust = resolve_trusted_gcloud(cwd, policy=policy, strict=strict)
+    except GcpctxError as exc:
+        collector.add("gcloud_trust", "error", str(exc), "Install or configure a trusted gcloud")
+        return None
+    collector.add("gcloud_trust", "ok", f"gcloud trusted at {trust.path}")
+    for warning in trust.warnings:
+        collector.add("gcloud_trust", "warning", warning)
+    return trust
+
+
+def _check_policy(collector: _CheckCollector, policy: SecurityPolicy) -> None:
+    if policy.source:
+        collector.add("policy", "ok", f"Policy loaded from {policy.source} (mode={policy.mode})")
+    else:
+        collector.add("policy", "ok", "Using built-in default policy")
+
+
+def _check_approval(
+    collector: _CheckCollector,
+    ctx: ResolvedProjectContext,
+    policy: SecurityPolicy,
+    trust: GcloudTrustResult | None,
+) -> None:
+    approval = find_matching_approval(ctx, policy=policy, gcloud_trust=trust)
     if approval is None:
-        status: CheckStatus = "warning" if collector.interactive else "error"
+        status: CheckStatus = (
+            "warning" if collector.interactive and not collector.strict else "error"
+        )
         collector.add(
             "approval",
             status,
@@ -122,11 +176,44 @@ def _check_approval(collector: _CheckCollector, ctx: ResolvedProjectContext) -> 
             "Run gcpctx approve or activate interactively",
         )
         return
-    collector.add("approval", "ok", f"Approval found ({approval.mode})")
+    expiry = f", expires {approval.expires_at}" if approval.expires_at else ""
+    collector.add("approval", "ok", f"Approval found ({approval.mode}{expiry})")
+
+
+def _check_env_project(collector: _CheckCollector, ctx: ResolvedProjectContext) -> None:
+    env_project = os.environ.get("CLOUDSDK_CORE_PROJECT")
+    if not env_project:
+        collector.add("env_project", "ok", "CLOUDSDK_CORE_PROJECT unset in environment")
+        return
+    if env_project == ctx.project:
+        collector.add("env_project", "ok", f"CLOUDSDK_CORE_PROJECT matches profile: {env_project}")
+    else:
+        collector.add(
+            "env_project",
+            "error",
+            f"CLOUDSDK_CORE_PROJECT {env_project!r} != profile project {ctx.project!r}",
+            'eval "$(gcpctx activate --shell zsh)"',
+        )
+
+
+def _check_state_permissions(collector: _CheckCollector, strict: bool) -> None:
+    if not strict:
+        return
+    targets = [paths.approvals_file(), paths.user_config_path(), paths.user_cache_path()]
+    for target in targets:
+        if not target.exists():
+            continue
+        try:
+            reject_symlink(target)
+            check_path_permissions(target, expect_dir=target.is_dir())
+        except GcpctxError as exc:
+            collector.add("state_permissions", "error", str(exc))
+            return
+    collector.add("state_permissions", "ok", "gcpctx state paths have safe permissions")
 
 
 def _check_isolation(collector: _CheckCollector, cloudsdk: str) -> None:
-    cache = user_cache_path().resolve()
+    cache = paths.user_cache_path().resolve()
     if cloudsdk:
         try:
             config_path = Path(cloudsdk).resolve()
@@ -149,10 +236,40 @@ def _check_gcloud_state(
     config_path: Path,
     prof: ProfileConfig,
     interactive: bool,
+    strict: bool,
 ) -> None:
     _check_gcloud_project(collector, config_path, prof)
     _check_gcloud_impersonation(collector, config_path, prof)
-    _check_gcloud_adc(collector, config_path, interactive)
+    _check_gcloud_adc(collector, config_path, interactive, strict)
+
+
+def _check_impersonation_iam(
+    collector: _CheckCollector,
+    config_path: Path,
+    ctx: ResolvedProjectContext,
+) -> None:
+    if not gcloud_mod.adc_exists(config_path):
+        collector.add("impersonation_iam", "warning", "Skipped IAM probe: ADC not initialized")
+        return
+    try:
+        gcloud_mod.run_gcloud(
+            [
+                "auth",
+                "print-access-token",
+                "--impersonate-service-account",
+                ctx.service_account,
+            ],
+            cloudsdk_config=config_path,
+        )
+    except GcpctxError as exc:
+        collector.add(
+            "impersonation_iam",
+            "error",
+            f"IAM impersonation probe failed: {exc}",
+            "Grant roles/iam.serviceAccountTokenCreator on the service account",
+        )
+        return
+    collector.add("impersonation_iam", "ok", "IAM impersonation probe succeeded")
 
 
 def _check_gcloud_project(
@@ -187,9 +304,12 @@ def _check_gcloud_adc(
     collector: _CheckCollector,
     config_path: Path,
     interactive: bool,
+    strict: bool,
 ) -> None:
     adc_status: CheckStatus = (
-        "ok" if gcloud_mod.adc_exists(config_path) else ("warning" if interactive else "error")
+        "ok"
+        if gcloud_mod.adc_exists(config_path)
+        else ("warning" if interactive and not strict else "error")
     )
     if adc_status == "ok":
         collector.add("adc", "ok", "ADC initialized")
@@ -202,7 +322,7 @@ def _check_gac(collector: _CheckCollector, interactive: bool) -> None:
     if not gac:
         collector.add("gac", "ok", "GOOGLE_APPLICATION_CREDENTIALS unset")
         return
-    status: CheckStatus = "warning" if interactive else "error"
+    status: CheckStatus = "warning" if interactive and not collector.strict else "error"
     collector.add(
         "gac",
         status,
@@ -211,18 +331,12 @@ def _check_gac(collector: _CheckCollector, interactive: bool) -> None:
     )
 
 
-def _check_gcloud(collector: _CheckCollector) -> None:
-    try:
-        gcloud_mod.find_gcloud()
-        collector.add("gcloud", "ok", "gcloud found on PATH")
-    except GcpctxError as exc:
-        collector.add("gcloud", "error", str(exc), "Install Google Cloud SDK")
-
-
 def _approval_status(root: Path, info: dict[str, str]) -> str:
     try:
-        ctx = resolve_project_context(root, info.get("profile"))
-        approval = find_matching_approval(ctx)
+        policy = load_policy()
+        ctx = resolve_project_context(root, info.get("profile"), policy=policy)
+        trust = resolve_trusted_gcloud(root, policy=policy)
+        approval = find_matching_approval(ctx, policy=policy, gcloud_trust=trust)
     except GcpctxError:
         return "unknown"
     else:
@@ -235,7 +349,14 @@ def _severity_exit(name: str) -> int:
         "approval": 3,
         "isolation": 2,
         "gcloud": 5,
+        "gcloud_trust": 5,
         "gac": 6,
         "adc": 5,
+        "policy": 7,
+        "impersonation_iam": 5,
+        "state_permissions": 4,
+        "env_project": 2,
+        "sa_project_match": 2,
+        "approval_expiry": 3,
     }
     return mapping.get(name, 1)

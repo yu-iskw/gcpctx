@@ -29,7 +29,7 @@ Choose one of these options:
 uvx gcpctx --help
 
 # Pin a version
-uvx gcpctx@0.1.0 status
+uvx gcpctx@0.2.0 status
 
 # Run from a local checkout (before publish)
 uvx --from /path/to/gcpctx gcpctx --help
@@ -197,16 +197,53 @@ Parse JSON for `active`, `cloudsdk_config`, `approval`, and per-check status fro
 
 Some tools insist on a key file path. Use `--allow-google-application-credentials` only when necessary; prefer impersonated ADC otherwise.
 
-## Security model
+## Security model (v0.2)
 
-- First-use approval with optional remember; non-interactive mode fails closed without approval
+- **POSIX only** — Windows is unsupported; the CLI fails closed until ACL checks land.
+- First-use approval with remember + **TTL** (default 30 days); schema v2 binds **gcloud path and fingerprint**
 - Config SHA-256 binding invalidates approval when project, service account, or config changes
+- **Immutable project identity** — `CLOUDSDK_CORE_PROJECT` always matches `profile.project` (cannot set via `env`)
 - Isolated `CLOUDSDK_CONFIG` under `~/.cache/gcpctx/contexts/`
+- Atomic, locked, symlink-safe writes for approvals and context state (`0600`/`0700`)
+- gcloud binary trust validation (repo-local shadowing, world-writable parents, optional allowlist)
 - Service account impersonation only (no long-lived key files in repo config)
-- Restrictive file permissions on state directories and approvals
 - `GOOGLE_APPLICATION_CREDENTIALS` unset by default in hook mode (restored on deactivate)
+- Optional **`policy.toml`** for org-style allowlists and strict mode
+- **`gcpctx doctor --strict --json`** for CI/agent compliance gates
+- Append-only **`audit.jsonl`** for security events (no credential material)
 
-See [Architecture decision records](docs/adr/) for design rationale (ADR-0003 through ADR-0008).
+See [SECURITY.md](SECURITY.md) and [Architecture decision records](docs/adr/) (ADR-0003 through ADR-0009).
+
+### Upgrading from v0.1
+
+- Remove any `[profiles.*.env] CLOUDSDK_CORE_PROJECT` entries — use `profile.project` instead.
+- Service account emails must use the same GCP project as `profile.project` (e.g. `agent@my-dev-project.iam.gserviceaccount.com` for `project = "my-dev-project"`). Cross-project impersonation is not supported in v0.2.
+- Re-run `gcpctx approve` after upgrade (approval schema v2 adds gcloud binding and expiry).
+- Pin gcloud if needed: `gcpctx config set-gcloud-path /path/to/gcloud`
+
+### Policy file (optional)
+
+`~/.config/gcpctx/policy.toml` or `$GCPCTX_POLICY_PATH`:
+
+```toml
+version = 1
+[policy]
+mode = "strict"
+approval_ttl_days = 30
+require_initialized_adc_for_hook = true
+[allow]
+projects = ["dev-*"]
+[gcloud]
+allowed_paths = ["/opt/google-cloud-sdk/bin/gcloud"]
+```
+
+### Strict doctor
+
+```bash
+gcpctx doctor --strict --json
+```
+
+Non-zero exit when isolation, approval, ADC, IAM impersonation, or filesystem posture is unsafe.
 
 ## Troubleshooting
 

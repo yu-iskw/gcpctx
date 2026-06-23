@@ -23,6 +23,15 @@ from typing import TYPE_CHECKING, Any
 from gcpctx.discovery import config_path
 from gcpctx.errors import ConfigValidationError
 from gcpctx.models import GcpctxConfig, ProfileConfig
+from gcpctx.policy import (
+    DEPRECATED_PROFILE_ENV_KEYS,
+    SecurityPolicy,
+    load_policy,
+    validate_env_keys_allowed,
+    validate_project_allowed,
+    validate_quota_project_allowed,
+    validate_service_account_allowed,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,7 +43,6 @@ SERVICE_ACCOUNT_RE = re.compile(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9-]+\.iam\.gservicea
 ALLOWED_ENV_KEYS = frozenset(
     {
         "CLOUDSDK_CORE_DISABLE_PROMPTS",
-        "CLOUDSDK_CORE_PROJECT",
         "CLOUDSDK_COMPUTE_REGION",
         "CLOUDSDK_COMPUTE_ZONE",
     }
@@ -51,16 +59,21 @@ def config_sha256(root: Path) -> str:
     return hash_config_bytes(config_path(root).read_bytes())
 
 
-def load_config_from_bytes(raw: bytes) -> GcpctxConfig:
+def load_config_from_bytes(
+    raw: bytes,
+    *,
+    policy: SecurityPolicy | None = None,
+) -> GcpctxConfig:
     """Load and validate configuration from raw TOML bytes."""
     parsed = tomllib.loads(raw.decode("utf-8"))
-    _validate_raw(parsed)
+    active_policy = policy or load_policy()
+    _validate_raw(parsed, active_policy)
     return GcpctxConfig.model_validate(parsed)
 
 
-def load_config(root: Path) -> GcpctxConfig:
+def load_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxConfig:
     """Load and validate configuration from a project root."""
-    return load_config_from_bytes(config_path(root).read_bytes())
+    return load_config_from_bytes(config_path(root).read_bytes(), policy=policy)
 
 
 def select_profile(config: GcpctxConfig, profile: str | None) -> tuple[str, ProfileConfig]:
@@ -72,7 +85,15 @@ def select_profile(config: GcpctxConfig, profile: str | None) -> tuple[str, Prof
     return name, config.profiles[name]
 
 
-def _validate_raw(raw: dict[str, Any]) -> None:
+def service_account_project(service_account: str) -> str | None:
+    """Extract GCP project ID from a service account email."""
+    match = re.match(r"^[^@]+@([^.]+)\.iam\.gserviceaccount\.com$", service_account)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _validate_raw(raw: dict[str, Any], policy: SecurityPolicy) -> None:
     if raw.get("version") != 1:
         msg = "version must be 1"
         raise ConfigValidationError(msg)
@@ -89,16 +110,16 @@ def _validate_raw(raw: dict[str, Any]) -> None:
         msg = f"default_profile {default_profile!r} not in profiles"
         raise ConfigValidationError(msg)
 
-    _validate_profiles(profiles)
+    _validate_profiles(profiles, policy)
 
 
-def _validate_profiles(profiles: dict[str, Any]) -> None:
+def _validate_profiles(profiles: dict[str, Any], policy: SecurityPolicy) -> None:
     for name, profile in profiles.items():
         _validate_profile_name(name)
         if not isinstance(profile, dict):
             msg = f"profile {name!r} must be a table"
             raise ConfigValidationError(msg)
-        _validate_profile_fields(name, profile)
+        _validate_profile_fields(name, profile, policy)
 
 
 def _validate_profile_name(name: str) -> None:
@@ -107,12 +128,16 @@ def _validate_profile_name(name: str) -> None:
         raise ConfigValidationError(msg)
 
 
-def _validate_profile_fields(name: str, profile: dict[str, Any]) -> None:
-    _validate_profile_identity(name, profile)
-    _validate_profile_env(name, profile.get("env", {}))
+def _validate_profile_fields(name: str, profile: dict[str, Any], policy: SecurityPolicy) -> None:
+    _validate_profile_identity(name, profile, policy)
+    _validate_profile_env(name, profile.get("env", {}), policy)
 
 
-def _validate_profile_identity(name: str, profile: dict[str, Any]) -> None:
+def _validate_profile_identity(
+    name: str,
+    profile: dict[str, Any],
+    policy: SecurityPolicy,
+) -> None:
     project = profile.get("project")
     service_account = profile.get("service_account")
     if not isinstance(project, str) or not PROJECT_ID_RE.match(project):
@@ -127,15 +152,34 @@ def _validate_profile_identity(name: str, profile: dict[str, Any]) -> None:
         msg = f"profile {name!r}: invalid quota_project"
         raise ConfigValidationError(msg)
 
+    sa_project = service_account_project(service_account)
+    if sa_project is not None and sa_project != project:
+        msg = (
+            f"profile {name!r}: service account project {sa_project!r} "
+            f"does not match profile project {project!r}"
+        )
+        raise ConfigValidationError(msg)
 
-def _validate_profile_env(name: str, env: object) -> None:
+    validate_project_allowed(project, policy)
+    validate_service_account_allowed(service_account, policy)
+    validate_quota_project_allowed(quota if isinstance(quota, str) else None, policy)
+
+
+def _validate_profile_env(name: str, env: object, policy: SecurityPolicy) -> None:
     if not isinstance(env, dict):
         msg = f"profile {name!r}: env must be a table"
         raise ConfigValidationError(msg)
     for key in env:
+        if key in DEPRECATED_PROFILE_ENV_KEYS:
+            msg = (
+                f"profile {name!r}: env key {key!r} is not allowed; "
+                "remove it and use profile.project instead"
+            )
+            raise ConfigValidationError(msg)
         if key not in ALLOWED_ENV_KEYS:
             msg = f"profile {name!r}: env key {key!r} is not allowlisted"
             raise ConfigValidationError(msg)
+    validate_env_keys_allowed(set(env), policy)
 
 
 def validate_init_project_inputs(
@@ -150,6 +194,10 @@ def validate_init_project_inputs(
         raise ConfigValidationError(msg)
     if not SERVICE_ACCOUNT_RE.match(service_account):
         msg = f"invalid service account email: {service_account!r}"
+        raise ConfigValidationError(msg)
+    sa_project = service_account_project(service_account)
+    if sa_project is not None and sa_project != project:
+        msg = f"service account project {sa_project!r} does not match project {project!r}"
         raise ConfigValidationError(msg)
     _validate_profile_name(profile)
 

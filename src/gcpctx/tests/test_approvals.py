@@ -17,8 +17,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
-
 from gcpctx import paths
 from gcpctx.approvals import add_approval, find_matching_approval, revoke_approval
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
@@ -37,20 +35,6 @@ def _ctx(project_tree: Path, config_sha256: str | None = None) -> ResolvedProjec
         profile=ctx.profile,
         config_sha256=config_sha256,
     )
-
-
-@pytest.fixture(autouse=True)
-def isolated_approvals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    config_dir = tmp_path / "config" / "gcpctx"
-    config_dir.mkdir(parents=True)
-    config_dir.chmod(0o700)
-    approvals_json = config_dir / "approvals.json"
-
-    def _approvals_file() -> Path:
-        return approvals_json
-
-    monkeypatch.setattr("gcpctx.paths.approvals_file", _approvals_file)
-    return approvals_json
 
 
 def test_persist_and_match(project_tree: Path) -> None:

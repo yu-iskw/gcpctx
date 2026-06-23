@@ -17,49 +17,6 @@ checksum = "sha256:1b3f785a8c8746668c5575bf6ffab4ec46e9207519e8aab82babb2a21beaf
 url = "https://github.com/github/codeql-cli-binaries/releases/download/v2.25.5/codeql-osx64.zip"
 url_api = "https://api.github.com/repos/github/codeql-cli-binaries/releases/assets/423423442"
 
-[[tools.codeql]]
-version = "2.25.5"
-backend = "github:github/codeql-cli-binaries"
-
-[tools.codeql."platforms.linux-arm64"]
-checksum = "sha256:d82c55c82ad6f3e27a4bedcf190f23554a3c0c110e3680c6c2530ad163e6d87c"
-url = "https://github.com/github/codeql-cli-binaries/releases/download/v2.25.5/codeql-linux64.zip"
-url_api = "https://api.github.com/repos/github/codeql-cli-binaries/releases/assets/423423441"
-
-[tools.codeql."platforms.linux-arm64-musl"]
-checksum = "sha256:d82c55c82ad6f3e27a4bedcf190f23554a3c0c110e3680c6c2530ad163e6d87c"
-url = "https://github.com/github/codeql-cli-binaries/releases/download/v2.25.5/codeql-linux64.zip"
-url_api = "https://api.github.com/repos/github/codeql-cli-binaries/releases/assets/423423441"
-
-[[tools.codeql]]
-version = "2.25.5"
-backend = "github:github/codeql-cli-binaries"
-
-[tools.codeql.options]
-asset_pattern = "codeql-linux64.zip"
-
-[tools.codeql."platforms.linux-x64"]
-checksum = "sha256:d82c55c82ad6f3e27a4bedcf190f23554a3c0c110e3680c6c2530ad163e6d87c"
-url = "https://github.com/github/codeql-cli-binaries/releases/download/v2.25.5/codeql-linux64.zip"
-url_api = "https://api.github.com/repos/github/codeql-cli-binaries/releases/assets/423423441"
-
-[tools.codeql."platforms.linux-x64-musl"]
-checksum = "sha256:d82c55c82ad6f3e27a4bedcf190f23554a3c0c110e3680c6c2530ad163e6d87c"
-url = "https://github.com/github/codeql-cli-binaries/releases/download/v2.25.5/codeql-linux64.zip"
-url_api = "https://api.github.com/repos/github/codeql-cli-binaries/releases/assets/423423441"
-
-[[tools.codeql]]
-version = "2.25.5"
-backend = "github:github/codeql-cli-binaries"
-
-[tools.codeql.options]
-asset_pattern = "codeql-win64.zip"
-
-[tools.codeql."platforms.windows-x64"]
-checksum = "sha256:db470e09a5f94e9d262f0e1a67af1ff1c72571d567898d3a44c4b09c581afc6e"
-url = "https://github.com/github/codeql-cli-binaries/releases/download/v2.25.5/codeql-win64.zip"
-url_api = "https://api.github.com/repos/github/codeql-cli-binaries/releases/assets/423423446"
-
 [[tools.grype]]
 version = "0.112.0"
 backend = "aqua:anchore/grype"

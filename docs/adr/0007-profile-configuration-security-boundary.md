@@ -15,7 +15,7 @@ Treat `.gcpctx.toml` as **untrusted input**. Version 1 schema is validated stric
 - Profile names: alphanumeric plus `_.-`
 - Project IDs and service account emails: conservative patterns
 - `default_profile` must exist in `profiles`
-- `profiles.*.env` keys are **allowlisted** in v0.1 (`CLOUDSDK_CORE_DISABLE_PROMPTS`, `CLOUDSDK_CORE_PROJECT`, `CLOUDSDK_COMPUTE_REGION`, `CLOUDSDK_COMPUTE_ZONE` only)
+- `profiles.*.env` keys are **allowlisted** in v0.1 (`CLOUDSDK_CORE_DISABLE_PROMPTS`, `CLOUDSDK_COMPUTE_REGION`, `CLOUDSDK_COMPUTE_ZONE` only). As of **v0.2**, `CLOUDSDK_CORE_PROJECT` was removed from the allowlist; project identity is always taken from `profile.project` (see ADR-0009).
 
 Context IDs are derived deterministically from canonical root, profile, project, service account, config SHA-256, and schema version. Including the config hash means identity changes allocate **new** isolated state instead of mutating old contexts.
 
