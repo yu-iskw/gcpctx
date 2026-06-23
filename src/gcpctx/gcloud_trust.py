@@ -27,7 +27,6 @@ from pathlib import Path
 from gcpctx.errors import GcloudNotFoundError, GcloudTrustError
 from gcpctx.policy import SecurityPolicy, load_policy, matches_allowlist
 from gcpctx.settings import load_settings
-from gcpctx.toolchain import resolve_mise_gcloud_path
 
 _FINGERPRINT_CACHE: dict[str, tuple[int, int, str]] = {}
 
@@ -47,7 +46,7 @@ def resolve_gcloud_path() -> str:
     configured = load_settings().gcloud_path
     if configured and Path(configured).is_file():
         return configured
-    path = shutil.which("gcloud")
+    path = _first_gcloud_on_path() or shutil.which("gcloud")
     if path is None:
         if configured:
             msg = (
@@ -232,24 +231,24 @@ def _is_mise_shim_path(path: str) -> bool:
     return "/mise/shims/" in normalized
 
 
+def _first_gcloud_on_path() -> str | None:
+    """Return the first executable gcloud on PATH, skipping version-manager shims."""
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not directory:
+            continue
+        candidate = Path(directory) / "gcloud"
+        if (
+            candidate.is_file()
+            and os.access(candidate, os.X_OK)
+            and not _is_mise_shim_path(str(candidate))
+        ):
+            return str(candidate)
+    return None
+
+
 def _toolchain_warnings(configured_path: str | None, resolved_input: str) -> list[str]:
-    warnings: list[str] = []
-    resolved = Path(resolved_input).resolve()
-    if configured_path is None and _is_mise_shim_path(resolved_input):
-        warnings.append(
-            "gcloud resolved via mise shim; pin the install binary with "
-            "gcpctx config set-gcloud-path --from-mise"
-        )
-        return warnings
     if configured_path is not None:
-        return warnings
-    try:
-        mise_path = str(Path(resolve_mise_gcloud_path()).resolve())
-    except GcloudNotFoundError:
-        return warnings
-    if mise_path != str(resolved):
-        warnings.append(
-            f"PATH gcloud ({resolved}) differs from mise which gcloud ({mise_path}); "
-            "run gcpctx config set-gcloud-path --from-mise"
-        )
-    return warnings
+        return []
+    if _is_mise_shim_path(resolved_input):
+        return ["gcloud resolved via mise shim; put system gcloud before mise shims on PATH"]
+    return []

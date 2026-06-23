@@ -34,6 +34,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _unset_user_settings() -> UserSettings:
+    return UserSettings()
+
+
 def test_fingerprint_gcloud_caches_until_content_changes(tmp_path: Path) -> None:
     clear_fingerprint_cache()
     binary = tmp_path / "gcloud"
@@ -115,3 +119,41 @@ def test_resolve_gcloud_path_fails_when_stale_pin_and_no_path(
     monkeypatch.setenv("PATH", "")
     with pytest.raises(GcloudNotFoundError, match="pinned gcloud_path '/usr/bin/gcloud' not found"):
         resolve_gcloud_path()
+
+
+def _write_executable_gcloud(path: Path) -> None:
+    path.write_bytes(b"fake-gcloud")
+    path.chmod(0o755)
+
+
+def test_resolve_gcloud_path_prefers_system_over_mise_shim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("gcpctx.gcloud_trust.load_settings", _unset_user_settings)
+    mise_shims = tmp_path / "mise" / "shims"
+    system_bin = tmp_path / "opt" / "homebrew" / "bin"
+    mise_shims.mkdir(parents=True)
+    system_bin.mkdir(parents=True)
+    _write_executable_gcloud(mise_shims / "gcloud")
+    _write_executable_gcloud(system_bin / "gcloud")
+    monkeypatch.setenv("PATH", f"{mise_shims}:{system_bin}")
+
+    assert resolve_gcloud_path() == str(system_bin / "gcloud")
+
+
+def test_toolchain_warnings_silent_when_system_gcloud(
+    tmp_path: Path,
+    project_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clear_fingerprint_cache()
+    monkeypatch.setattr("gcpctx.gcloud_trust.load_settings", _unset_user_settings)
+    system_bin = tmp_path / "opt" / "homebrew" / "bin"
+    system_bin.mkdir(parents=True)
+    _write_executable_gcloud(system_bin / "gcloud")
+    monkeypatch.setenv("PATH", str(system_bin))
+
+    result = resolve_trusted_gcloud(project_tree)
+    assert result.path == str((system_bin / "gcloud").resolve())
+    assert not any("mise" in warning.lower() for warning in result.warnings)
