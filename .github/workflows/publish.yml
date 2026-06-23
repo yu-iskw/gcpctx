@@ -42,7 +42,12 @@ jobs:
           uv build
       - name: Generate SBOM
         run: |
-          cyclonedx-py sbom -o dist/gcpctx-sbom.json dist/*.whl
+          uv export --frozen --no-dev --no-hashes --no-emit-project \
+            -o dist/requirements-release.txt
+          cyclonedx-py requirements \
+            --output-file dist/gcpctx-sbom.json \
+            --pyproject pyproject.toml \
+            dist/requirements-release.txt
       - name: Publish
         uses: pypa/gh-action-pypi-publish@6733eb7d741f0b11ec6a39b58540dab7590f9b7d # v1.14.0
       - name: Attest build provenance
