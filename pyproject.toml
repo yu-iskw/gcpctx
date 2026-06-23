@@ -23,7 +23,7 @@ packages = ["src/gcpctx"]
 
 [project]
 name = "gcpctx"
-version = "0.1.0"
+version = "0.2.0"
 authors = [{ name = "yu-iskw" }]
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -50,6 +50,7 @@ dependencies = [
   "platformdirs>=4.0.0",
   "pydantic>=2.0.0",
   "rich>=13.0.0",
+  "tomli-w>=1.0.0",
   "typer>=0.12.0",
 ]
 
@@ -70,6 +71,7 @@ dev = [
   "pylint>=3.3.5",
   "vulture>=2.16",
   "ssort>=0.16.0",
+  "google-cloud-bigquery>=3.42.1",
 ]
 
 [tool.pyright]

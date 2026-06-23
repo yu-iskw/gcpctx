@@ -154,3 +154,17 @@ Some tools load mirrored skills under `.agents/skills/` instead of `.claude/`. O
 - **`.gemini/settings.json`** — Gemini CLI project context
 - **`.cursor/rules/`** — Optional Cursor rules (e.g. Always Apply); see [Cursor: Rules](https://cursor.com/docs/rules)
 - **[`.codex/config.toml`](.codex/config.toml)** — Optional Codex defaults (sandbox, approvals); links above under **OpenAI Codex**
+
+## Learned User Preferences
+
+- Prefer minimal-scope fixes; avoid over-engineering and large architectural refactors unless explicitly requested.
+- Balance security with UX/DX: strict gcloud-path binding and advanced security controls should be opt-in for new users, not default.
+
+## Learned Workspace Facts
+
+- Run the gcpctx CLI in this repo with `uv run gcpctx` (project venv), not bare `gcpctx` unless globally installed.
+- With `gcloud_path` unset in `.gcpctx.toml`, gcpctx resolves gcloud via `shutil.which("gcloud")`; pin per project with `gcpctx config set-gcloud-path` and clear with `unset-gcloud-path`. gcpctx does not integrate with version managers.
+- Stale project pins fall back to PATH with a warning; `gcpctx config unset-gcloud-path` clears the pin from `.gcpctx.toml`.
+- Default security policy is permissive: gcloud on PATH works without pinning unless `policy.toml` strict mode or `doctor --strict` is used.
+- `settings.toml` accepts `version` 1 or 2 and ignores unknown keys (including deprecated global `gcloud_path`).
+- Managed gcpctx cache/config dirs auto-repair to `0o700` before permission validation when owned by the user.

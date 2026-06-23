@@ -18,16 +18,16 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from gcpctx import gcloud as gcloud_mod
+from gcpctx import audit, gcloud as gcloud_mod
 from gcpctx.approvals import (
     consume_once_approval,
     find_matching_approval,
     prompt_for_approval,
 )
-from gcpctx.context_id import ContextIdInput, derive_context_id
 from gcpctx.errors import ConfigNotFoundError, CredentialConflictError
+from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.models import ActivationRequest, ActivationResult
-from gcpctx.paths import cloudsdk_config_dir
+from gcpctx.policy import load_policy, profile_env_for_export
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 
 if TYPE_CHECKING:
@@ -36,33 +36,37 @@ if TYPE_CHECKING:
 
 def activate(request: ActivationRequest) -> ActivationResult:
     """Activate gcpctx for the given request."""
+    policy = load_policy()
     try:
-        ctx = resolve_project_context(request.cwd, request.profile)
+        ctx = resolve_project_context(request.cwd, request.profile, policy=policy)
     except ConfigNotFoundError:
         if request.run_mode:
             raise
         return missing_config_result()
-    ctx_id = derive_context_id(
-        ContextIdInput(
-            root=ctx.root,
-            profile=ctx.profile_name,
-            project=ctx.project,
-            service_account=ctx.service_account,
-            config_sha256=ctx.config_sha256,
-        )
-    )
-    config_dir = cloudsdk_config_dir(ctx_id)
 
-    approval = find_matching_approval(ctx)
+    trust = resolve_trusted_gcloud(
+        request.cwd,
+        policy=policy,
+        configured_path=ctx.gcloud_path,
+    )
+
+    ctx_id = ctx.context_id()
+    config_dir = ctx.expected_cloudsdk_config()
+
+    approval = find_matching_approval(ctx, policy=policy, gcloud_trust=trust)
     if approval is None:
         approval = prompt_for_approval(
             ctx,
             cloudsdk_config=config_dir,
             interactive=request.interactive,
+            policy=policy,
+            gcloud_trust=trust,
         )
 
     warnings, unsets = _gac_policy(request)
+    warnings.extend(trust.warnings)
 
+    adc_ready = gcloud_mod.adc_exists(config_dir)
     if not request.skip_gcloud_init:
         gcloud_mod.ensure_initialized(
             gcloud_mod.InitContext(
@@ -71,15 +75,43 @@ def activate(request: ActivationRequest) -> ActivationResult:
                 profile_name=ctx.profile_name,
                 profile=ctx.profile,
                 config_sha256=ctx.config_sha256,
+                gcloud_executable=trust.path,
                 force=request.force_refresh,
             )
+        )
+        adc_ready = True
+
+    if policy.require_initialized_adc_for_hook and request.hook_mode and not adc_ready:
+        audit.log_event(
+            "activation",
+            readiness="approved_not_initialized",
+            root=str(ctx.root),
+            profile=ctx.profile_name,
+        )
+        return ActivationResult(
+            active=False,
+            readiness="approved_not_initialized",
+            root=ctx.root,
+            profile=ctx.profile_name,
+            project=ctx.project,
+            service_account=ctx.service_account,
+            warnings=[*warnings, "ADC not initialized; run gcpctx refresh"],
         )
 
     consume_once_approval(approval)
 
     exports = _build_exports(ctx, ctx_id, config_dir)
+    audit.log_event(
+        "activation",
+        readiness="ready",
+        root=str(ctx.root),
+        profile=ctx.profile_name,
+        project=ctx.project,
+        context_id=ctx_id,
+    )
     return ActivationResult(
         active=True,
+        readiness="ready",
         root=ctx.root,
         profile=ctx.profile_name,
         project=ctx.project,
@@ -94,7 +126,7 @@ def activate(request: ActivationRequest) -> ActivationResult:
 
 def deactivate() -> ActivationResult:
     """Return deactivation result."""
-    return ActivationResult(active=False)
+    return ActivationResult(active=False, readiness="blocked")
 
 
 def child_environ(
@@ -112,8 +144,8 @@ def child_environ(
 def missing_config_result() -> ActivationResult:
     """When no .gcpctx.toml: deactivate if active, else emit no-op shell code."""
     if os.environ.get("GCPCTX_ACTIVE") == "1":
-        return ActivationResult(active=False)
-    return ActivationResult(active=False, noop=True)
+        return ActivationResult(active=False, readiness="blocked")
+    return ActivationResult(active=False, noop=True, readiness="blocked")
 
 
 def _build_exports(
@@ -129,14 +161,14 @@ def _build_exports(
         "GCPCTX_SERVICE_ACCOUNT": ctx.service_account,
         "GCPCTX_CONTEXT_ID": ctx_id,
         "CLOUDSDK_CONFIG": str(config_dir),
-        **ctx.profile.env,
+        **profile_env_for_export(ctx.profile.env),
     }
     if ctx.profile.region:
         exports["CLOUDSDK_COMPUTE_REGION"] = ctx.profile.region
     if ctx.profile.zone:
         exports["CLOUDSDK_COMPUTE_ZONE"] = ctx.profile.zone
-    if "CLOUDSDK_CORE_PROJECT" not in exports:
-        exports["CLOUDSDK_CORE_PROJECT"] = ctx.project
+    # Fail-closed: project identity cannot be overridden by profile.env.
+    exports["CLOUDSDK_CORE_PROJECT"] = ctx.project
     return exports
 
 

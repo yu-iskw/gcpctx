@@ -62,3 +62,27 @@ class CredentialConflictError(GcpctxError):
     """Raised when GOOGLE_APPLICATION_CREDENTIALS conflicts with activation."""
 
     exit_code = 6
+
+
+class UnsupportedPlatformError(GcpctxError):
+    """Raised when gcpctx is run on an unsupported platform."""
+
+    exit_code = 8
+
+
+class PolicyViolationError(GcpctxError):
+    """Raised when an operation violates the active security policy."""
+
+    exit_code = 7
+
+
+class SettingsViolationError(GcpctxError):
+    """Raised when user settings.toml fails validation."""
+
+    exit_code = 2
+
+
+class GcloudTrustError(GcpctxError):
+    """Raised when the gcloud binary fails trust validation."""
+
+    exit_code = 5

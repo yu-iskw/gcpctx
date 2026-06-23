@@ -33,7 +33,7 @@ src/gcpctx/           # Package source
   gcloud.py           # Isolated gcloud subprocesses
   shell.py            # bash/zsh export rendering
   tests/              # Colocated pytest suite
-docs/adr/             # Architecture decision records (0003–0008)
+docs/adr/             # Architecture decision records (0003–0009)
 dev/                  # CI helper scripts
 ```
 
@@ -91,6 +91,7 @@ Design rationale is recorded in [docs/adr/](docs/adr/):
 | [0006](docs/adr/0006-shell-activation-and-environment-contract.md)         | Shell hook stdout contract        |
 | [0007](docs/adr/0007-profile-configuration-security-boundary.md)           | Profile validation, env allowlist |
 | [0008](docs/adr/0008-process-scoped-execution-via-gcpctx-run.md)           | `gcpctx run` process-scoped exec  |
+| [0009](docs/adr/0009-v0.2-secure-by-default-hardening.md)                  | v0.2 security hardening           |
 
 Use the `manage-adr` skill when adding new ADRs (requires `adr` CLI).
 
@@ -107,3 +108,14 @@ Use the `manage-adr` skill when adding new ADRs (requires `adr` CLI).
 - `gcloud` subprocesses use arg arrays, never `shell=True`
 - Shell export tests must pass `bash -n` syntax validation
 - Run `make scan-vulnerabilities` and address or document accepted CVE findings
+- See [SECURITY.md](SECURITY.md) for threat model and vulnerability reporting
+
+## Releases
+
+Production publishes to PyPI via GitHub Release using **Trusted Publishing** (OIDC):
+
+1. Register a trusted publisher on PyPI for repository `yu-iskw/gcpctx`, workflow `publish.yml`, environment `release`.
+2. Protect the `release` GitHub Environment; require `test.yml` and `mise_toolchain.yml` to pass before deploy.
+3. Create a GitHub Release; `.github/workflows/publish.yml` builds wheel/sdist, generates CycloneDX SBOM, publishes to PyPI, and attaches provenance.
+
+TestPyPI publishes use `test-publish.yml` with `TESTPYPI_API_TOKEN` (manual dispatch).

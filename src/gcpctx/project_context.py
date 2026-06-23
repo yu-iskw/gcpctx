@@ -18,10 +18,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from gcpctx.config import hash_config_bytes, load_config_from_bytes, select_profile
-from gcpctx.discovery import config_path, find_project_root
+from gcpctx.config import hash_config_bytes, load_project_config_bytes, select_profile
+from gcpctx.context_id import ContextIdInput, derive_context_id
+from gcpctx.discovery import find_project_root
 from gcpctx.errors import ConfigNotFoundError
-from gcpctx.security import check_config_permissions
+from gcpctx.paths import cloudsdk_config_dir
+from gcpctx.policy import SecurityPolicy, load_policy
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,6 +39,7 @@ class ResolvedProjectContext:
     profile_name: str
     profile: ProfileConfig
     config_sha256: str
+    gcloud_path: str | None = None
 
     @property
     def project(self) -> str:
@@ -46,23 +49,39 @@ class ResolvedProjectContext:
     def service_account(self) -> str:
         return self.profile.service_account
 
+    def context_id(self) -> str:
+        return derive_context_id(
+            ContextIdInput(
+                root=self.root,
+                profile=self.profile_name,
+                project=self.project,
+                service_account=self.service_account,
+                config_sha256=self.config_sha256,
+            )
+        )
+
+    def expected_cloudsdk_config(self) -> Path:
+        return cloudsdk_config_dir(self.context_id())
+
 
 def resolve_project_context(
     cwd: Path,
     profile: str | None = None,
+    *,
+    policy: SecurityPolicy | None = None,
 ) -> ResolvedProjectContext:
     """Discover, validate, and load project context from *cwd*."""
     root = find_project_root(cwd)
     if root is None:
         msg = "No .gcpctx.toml found"
         raise ConfigNotFoundError(msg)
-    check_config_permissions(root)
-    raw = config_path(root).read_bytes()
-    config = load_config_from_bytes(raw)
+    active_policy = policy or load_policy()
+    config, raw = load_project_config_bytes(root, policy=active_policy)
     profile_name, prof = select_profile(config, profile)
     return ResolvedProjectContext(
         root=root,
         profile_name=profile_name,
         profile=prof,
         config_sha256=hash_config_bytes(raw),
+        gcloud_path=config.gcloud_path,
     )

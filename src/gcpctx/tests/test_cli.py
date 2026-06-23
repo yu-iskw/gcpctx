@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING
 import pytest
 from typer.testing import CliRunner
 
+from gcpctx import paths
 from gcpctx.cli import app
+from gcpctx.project_context import resolve_project_context
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -66,3 +68,54 @@ def test_hook_eval_activation_failure_emits_deactivate(
     assert result.exit_code == 3
     assert "unset GCPCTX_ACTIVE" in result.stdout
     assert "approval required" in result.stderr.lower()
+
+
+def test_config_unset_gcloud_path(project_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(project_tree)
+    gcloud_bin = project_tree / "gcloud"
+    gcloud_bin.write_bytes(b"fake")
+    gcloud_bin.chmod(0o755)
+    set_result = runner.invoke(app, ["config", "set-gcloud-path", str(gcloud_bin)])
+    assert set_result.exit_code == 0
+
+    result = runner.invoke(app, ["config", "unset-gcloud-path"])
+    assert result.exit_code == 0
+    assert "Cleared gcloud_path" in result.stdout
+    config_text = (project_tree / ".gcpctx.toml").read_text(encoding="utf-8")
+    assert "gcloud_path" not in config_text
+
+
+def test_clean_project_context(project_tree: Path) -> None:
+    ctx = resolve_project_context(project_tree)
+    ctx_dir = paths.context_dir(ctx.context_id())
+    ctx_dir.mkdir(parents=True)
+
+    result = runner.invoke(app, ["clean", "--cwd", str(project_tree)])
+
+    assert result.exit_code == 0
+    assert "removed" in result.stdout
+    assert not ctx_dir.exists()
+
+
+def test_clean_nothing_to_remove(project_tree: Path) -> None:
+    result = runner.invoke(app, ["clean", "--cwd", str(project_tree)])
+    assert result.exit_code == 0
+    assert "nothing to clean" in result.stdout
+
+
+def test_clean_dry_run_leaves_context(project_tree: Path) -> None:
+    ctx = resolve_project_context(project_tree)
+    ctx_dir = paths.context_dir(ctx.context_id())
+    ctx_dir.mkdir(parents=True)
+
+    result = runner.invoke(app, ["clean", "--cwd", str(project_tree), "--dry-run"])
+
+    assert result.exit_code == 0
+    assert "would remove" in result.stdout
+    assert ctx_dir.is_dir()
+
+
+def test_clean_reinit_rejected_with_all_contexts() -> None:
+    result = runner.invoke(app, ["clean", "--all-contexts", "--reinit"])
+    assert result.exit_code == 2
+    assert "--reinit requires project-scoped clean" in result.stderr

@@ -7,6 +7,9 @@ on:
         description: package version
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -14,9 +17,9 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12"
       - name: Install uv
@@ -35,17 +38,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
     defaults:
       run:
         shell: bash
     env:
-      PYTHON_PACKAGE_NAME: YOUR_PYTHON_PACKAGE_NAME
-      PYTHON_NAME_SPACE: YOUR_PYTHON_NAME_SPACE
+      PYTHON_PACKAGE_NAME: gcpctx
+      PYTHON_NAME_SPACE: gcpctx
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "${{ matrix.python-version }}"
       - name: Install packages
@@ -58,10 +61,9 @@ jobs:
             --extra-index-url https://pypi.org/simple/ \
             --force-reinstall \
             -U "${PYTHON_PACKAGE_NAME}==${PACKAGE_VERSION}"
-      # It takes some time when the package gets available.
       - name: Sleep
         run: |
           sleep 30
       - name: Test package
         run: |
-          python -c "import ${PYTHON_NAME_SPACE}"
+          python3 -m "${PYTHON_NAME_SPACE}"

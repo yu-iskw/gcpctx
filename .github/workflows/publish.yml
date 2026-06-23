@@ -13,23 +13,51 @@ jobs:
       url: https://pypi.org/p/gcpctx
     permissions:
       id-token: write
+      contents: write
+      attestations: write
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12"
       - name: Install uv
         run: |
           pip install -r requirements.setup.txt
+      - name: Verify release tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          PACKAGE_VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$RELEASE_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Release tag ${RELEASE_TAG} (version ${RELEASE_VERSION}) != pyproject version ${PACKAGE_VERSION}"
+            exit 1
+          fi
       - name: Build distributions
         run: |
           uv build
+      - name: Generate SBOM
+        run: |
+          cyclonedx-py sbom -o dist/gcpctx-sbom.json dist/*.whl
       - name: Publish
-        uses: pypa/gh-action-pypi-publish@v1.14.0
+        uses: pypa/gh-action-pypi-publish@6733eb7d741f0b11ec6a39b58540dab7590f9b7d # v1.14.0
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/gcpctx-sbom.json
 
   test-published-package:
     needs:
@@ -45,18 +73,21 @@ jobs:
       PYTHON_PACKAGE_NAME: gcpctx
       PYTHON_NAME_SPACE: gcpctx
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "${{ matrix.python-version }}"
-      # It takes some time when the package gets available.
       - name: Sleep
         run: |
           sleep 30
       - name: Install package
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          python3 -m pip install -U "${{ env.PYTHON_PACKAGE_NAME}}"
+          python3 -m pip install -U pip
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          python3 -m pip install -U "gcpctx==${RELEASE_VERSION}"
       - name: Test package
         run: |
           python3 -m "${{ env.PYTHON_NAME_SPACE }}"

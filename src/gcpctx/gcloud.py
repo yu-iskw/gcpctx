@@ -17,42 +17,25 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
+import subprocess  # nosec B404
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from pathlib import Path
 
-from gcpctx.errors import GcloudCommandError, GcloudNotFoundError
+from gcpctx.errors import GcloudCommandError
+from gcpctx.gcloud_trust import resolve_gcloud_path
 from gcpctx.models import ContextState, ProfileConfig
 from gcpctx.paths import cloudsdk_config_dir, context_state_file
-from gcpctx.security import ensure_dir, ensure_file
+from gcpctx.security import ensure_dir, ensure_managed_file, secure_read_text
 from gcpctx.timeutil import utc_now_iso
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 DEBOUNCE_SECONDS = 60
-_GCLOUD_PATH: str | None = None
 _SUBPROCESS_TIMEOUT_SECONDS = 120
 
 
-def find_gcloud() -> str:
-    """Return path to gcloud executable."""
-    global _GCLOUD_PATH  # noqa: PLW0603
-    if _GCLOUD_PATH is None:
-        path = shutil.which("gcloud")
-        if path is None:
-            msg = "gcloud not found on PATH"
-            raise GcloudNotFoundError(msg)
-        _GCLOUD_PATH = path
-    return _GCLOUD_PATH
-
-
-def clear_gcloud_cache() -> None:
-    """Reset cached gcloud path (for tests)."""
-    global _GCLOUD_PATH  # noqa: PLW0603
-    _GCLOUD_PATH = None
+def find_gcloud(cwd: Path | None = None) -> str:
+    """Return path to gcloud executable for *cwd* (or current directory)."""
+    return resolve_gcloud_path(cwd or Path.cwd())
 
 
 def _cloudsdk_env(cloudsdk_config: Path, extra_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -69,11 +52,12 @@ def run_gcloud(
     *,
     cloudsdk_config: Path,
     extra_env: dict[str, str] | None = None,
+    gcloud_executable: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run gcloud with isolated CLOUDSDK_CONFIG."""
-    gcloud = find_gcloud()
+    gcloud = gcloud_executable or find_gcloud()
     env = _cloudsdk_env(cloudsdk_config, extra_env)
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603
         [gcloud, *args],
         capture_output=True,
         text=True,
@@ -98,6 +82,7 @@ class InitContext:
     profile_name: str
     profile: ProfileConfig
     config_sha256: str
+    gcloud_executable: str
     force: bool = False
 
 
@@ -113,20 +98,27 @@ def ensure_initialized(ctx: InitContext) -> ContextState:
         if cached is not None:
             return _touch_state_checked(state_path, cached)
 
-    run_gcloud(["config", "set", "project", ctx.profile.project], cloudsdk_config=config_dir)
+    run_gcloud(
+        ["config", "set", "project", ctx.profile.project],
+        cloudsdk_config=config_dir,
+        gcloud_executable=ctx.gcloud_executable,
+    )
     run_gcloud(
         ["config", "set", "auth/impersonate_service_account", ctx.profile.service_account],
         cloudsdk_config=config_dir,
+        gcloud_executable=ctx.gcloud_executable,
     )
     if ctx.profile.region:
         run_gcloud(
             ["config", "set", "compute/region", ctx.profile.region],
             cloudsdk_config=config_dir,
+            gcloud_executable=ctx.gcloud_executable,
         )
     if ctx.profile.zone:
         run_gcloud(
             ["config", "set", "compute/zone", ctx.profile.zone],
             cloudsdk_config=config_dir,
+            gcloud_executable=ctx.gcloud_executable,
         )
 
     run_gcloud(
@@ -139,12 +131,14 @@ def ensure_initialized(ctx: InitContext) -> ContextState:
         ],
         cloudsdk_config=config_dir,
         extra_env={"CLOUDSDK_CORE_DISABLE_PROMPTS": "1"},
+        gcloud_executable=ctx.gcloud_executable,
     )
 
     if ctx.profile.quota_project:
         run_gcloud(
             ["auth", "application-default", "set-quota-project", ctx.profile.quota_project],
             cloudsdk_config=config_dir,
+            gcloud_executable=ctx.gcloud_executable,
         )
 
     now = utc_now_iso()
@@ -158,16 +152,22 @@ def ensure_initialized(ctx: InitContext) -> ContextState:
         last_checked_at=now,
         last_initialized_at=now,
     )
-    ensure_file(state_path, state.model_dump_json(indent=2))
+    ensure_managed_file(state_path, state.model_dump_json(indent=2))
     return state
 
 
-def read_gcloud_property(cloudsdk_config: Path, prop: str) -> str | None:
+def read_gcloud_property(
+    cloudsdk_config: Path,
+    prop: str,
+    *,
+    gcloud_executable: str | None = None,
+) -> str | None:
     """Read a gcloud config property value."""
     try:
         result = run_gcloud(
             ["config", "get-value", prop],
             cloudsdk_config=cloudsdk_config,
+            gcloud_executable=gcloud_executable,
         )
     except GcloudCommandError:
         return None
@@ -178,13 +178,6 @@ def read_gcloud_property(cloudsdk_config: Path, prop: str) -> str | None:
 def adc_exists(cloudsdk_config: Path) -> bool:
     """Return True if ADC credentials file exists for this config."""
     return (cloudsdk_config / "application_default_credentials.json").is_file()
-
-
-def reset_context(context_id: str) -> None:
-    """Delete isolated context directory."""
-    context_dir = cloudsdk_config_dir(context_id).parent
-    if context_dir.exists():
-        shutil.rmtree(context_dir)
 
 
 def _load_cached_state(
@@ -203,8 +196,8 @@ def _load_cached_state(
 
 def _read_state_file(state_path: Path) -> ContextState | None:
     try:
-        return ContextState.model_validate_json(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, ValueError):
+        return ContextState.model_validate_json(secure_read_text(state_path))
+    except (json.JSONDecodeError, ValueError, OSError):
         return None
 
 
@@ -223,5 +216,5 @@ def _touch_state_checked(state_path: Path, state: ContextState) -> ContextState:
     if datetime.now(tz=UTC) - checked <= timedelta(seconds=DEBOUNCE_SECONDS):
         return state
     updated = state.model_copy(update={"last_checked_at": utc_now_iso()})
-    ensure_file(state_path, updated.model_dump_json(indent=2))
+    ensure_managed_file(state_path, updated.model_dump_json(indent=2))
     return updated

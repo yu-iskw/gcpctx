@@ -11,14 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Run a subprocess with an explicit environment (stdio inherited)."""
+"""Platform gate tests."""
 
 from __future__ import annotations
 
-import subprocess  # nosec B404
+import sys
+
+import pytest
+from typer.testing import CliRunner
+
+from gcpctx.cli import app
 
 
-def run_command(argv: list[str], env: dict[str, str]) -> int:
-    """Run *argv* with *env*; inherit stdin/stdout/stderr from the parent."""
-    completed = subprocess.run(argv, env=env, check=False)  # nosec B603
-    return completed.returncode
+def test_windows_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code == 8
+    assert "POSIX" in result.stderr

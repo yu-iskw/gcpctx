@@ -19,7 +19,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from gcpctx.config import load_config, select_profile, validate_init_project_inputs
+from gcpctx.config import (
+    load_config,
+    select_profile,
+    set_project_gcloud_path,
+    unset_project_gcloud_path,
+    validate_init_project_inputs,
+)
 from gcpctx.errors import ConfigValidationError
 
 if TYPE_CHECKING:
@@ -96,3 +102,75 @@ def test_validate_init_project_inputs_rejects_invalid_project() -> None:
             service_account="a@my-dev-project.iam.gserviceaccount.com",
             profile="dev",
         )
+
+
+def test_rejects_cloudsdk_core_project_env(tmp_path: Path) -> None:
+    root = tmp_path / "r"
+    root.mkdir()
+    (root / ".gcpctx.toml").write_text(
+        'version = 1\ndefault_profile = "dev"\n[profiles.dev]\n'
+        'project = "my-dev-project"\n'
+        'service_account = "a@my-dev-project.iam.gserviceaccount.com"\n'
+        '[profiles.dev.env]\nCLOUDSDK_CORE_PROJECT = "other-project"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigValidationError, match="CLOUDSDK_CORE_PROJECT"):
+        load_config(root)
+
+
+def test_service_account_project_mismatch(tmp_path: Path) -> None:
+    root = tmp_path / "r"
+    root.mkdir()
+    (root / ".gcpctx.toml").write_text(
+        'version = 1\ndefault_profile = "dev"\n[profiles.dev]\n'
+        'project = "my-dev-project"\n'
+        'service_account = "agent@other-project.iam.gserviceaccount.com"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigValidationError, match="does not match"):
+        load_config(root)
+
+
+def test_load_config_accepts_optional_gcloud_path(tmp_path: Path) -> None:
+    root = tmp_path / "r"
+    root.mkdir()
+    gcloud = root / "gcloud"
+    gcloud.write_bytes(b"fake")
+    gcloud.chmod(0o755)
+    (root / ".gcpctx.toml").write_text(
+        "version = 1\n"
+        'default_profile = "dev"\n'
+        f'gcloud_path = "{gcloud}"\n'
+        "[profiles.dev]\n"
+        'project = "my-dev-project"\n'
+        'service_account = "a@my-dev-project.iam.gserviceaccount.com"\n',
+        encoding="utf-8",
+    )
+    config = load_config(root)
+    assert config.gcloud_path == str(gcloud)
+
+
+def test_load_config_rejects_relative_gcloud_path(tmp_path: Path) -> None:
+    root = tmp_path / "r"
+    root.mkdir()
+    (root / ".gcpctx.toml").write_text(
+        "version = 1\n"
+        'default_profile = "dev"\n'
+        'gcloud_path = "gcloud"\n'
+        "[profiles.dev]\n"
+        'project = "my-dev-project"\n'
+        'service_account = "a@my-dev-project.iam.gserviceaccount.com"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigValidationError, match="absolute path"):
+        load_config(root)
+
+
+def test_set_and_unset_project_gcloud_path(project_tree: Path) -> None:
+    gcloud = project_tree / "gcloud"
+    gcloud.write_bytes(b"fake")
+    gcloud.chmod(0o755)
+    set_project_gcloud_path(project_tree, str(gcloud))
+    assert load_config(project_tree).gcloud_path == str(gcloud.resolve())
+    unset_project_gcloud_path(project_tree)
+    assert load_config(project_tree).gcloud_path is None

@@ -19,7 +19,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from gcpctx import paths
 from gcpctx.approvals import add_approval
+from gcpctx.context_id import ContextIdInput, derive_context_id
 from gcpctx.doctor import run_doctor
 from gcpctx.paths import cloudsdk_config_dir
 from gcpctx.project_context import resolve_project_context
@@ -29,18 +31,8 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cache = tmp_path / "cache" / "gcpctx"
-    config = tmp_path / "config" / "gcpctx"
-    cache.mkdir(parents=True)
-    config.mkdir(parents=True)
-    cache.chmod(0o700)
-    config.chmod(0o700)
-    monkeypatch.setattr("gcpctx.paths.user_cache_path", lambda: cache)
-    monkeypatch.setattr("gcpctx.doctor.user_cache_path", lambda: cache)
-    monkeypatch.setattr("gcpctx.paths.user_config_path", lambda: config)
-    monkeypatch.setattr("gcpctx.paths.context_base_dir", lambda: cache / "contexts")
-    monkeypatch.setattr("gcpctx.paths.approvals_file", lambda: config / "approvals.json")
+def isolated_state() -> None:
+    """Use global conftest state isolation."""
 
 
 @pytest.mark.usefixtures("fake_gcloud")
@@ -50,8 +42,7 @@ def test_doctor_happy_path(
 ) -> None:
     ctx = resolve_project_context(project_tree)
     add_approval(ctx, mode="remembered")
-    ctx_id = "doctorctx1234567890123456"
-    isolated = cloudsdk_config_dir(ctx_id)
+    isolated = ctx.expected_cloudsdk_config()
     isolated.mkdir(parents=True)
     (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
     monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
@@ -63,15 +54,16 @@ def test_doctor_happy_path(
     assert "config" in names
     assert "profile" in names
     assert "approval" in names
-    assert "isolation" in names
+    assert "expected_context" in names
+    assert "ambient_cloudsdk" in names
     config_check = next(c for c in result.checks if c.name == "config")
-    isolation_check = next(c for c in result.checks if c.name == "isolation")
+    ambient_check = next(c for c in result.checks if c.name == "ambient_cloudsdk")
     assert config_check.status == "ok"
-    assert isolation_check.status == "ok"
+    assert ambient_check.status == "ok"
 
 
 @pytest.mark.usefixtures("fake_gcloud")
-def test_doctor_isolation_error_when_not_under_cache(
+def test_doctor_ambient_cloudsdk_error_when_not_under_cache(
     project_tree: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -84,5 +76,70 @@ def test_doctor_isolation_error_when_not_under_cache(
 
     result = run_doctor(project_tree, interactive=False)
 
-    isolation_check = next(c for c in result.checks if c.name == "isolation")
-    assert isolation_check.status == "error"
+    ambient_check = next(c for c in result.checks if c.name == "ambient_cloudsdk")
+    assert ambient_check.status == "error"
+    assert "not under gcpctx cache" in ambient_check.message
+
+
+@pytest.mark.usefixtures("fake_gcloud")
+def test_doctor_strict_fails_when_ambient_points_to_stale_context(
+    project_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered")
+    expected = ctx.expected_cloudsdk_config()
+    expected.mkdir(parents=True)
+    (expected / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+
+    stale_id = derive_context_id(
+        ContextIdInput(
+            root=ctx.root,
+            profile=ctx.profile_name,
+            project=ctx.project,
+            service_account=ctx.service_account,
+            config_sha256="0" * 64,
+        )
+    )
+    stale = cloudsdk_config_dir(stale_id)
+    stale.mkdir(parents=True)
+    (stale / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(stale))
+
+    result = run_doctor(project_tree, interactive=False, strict=True)
+
+    ambient_check = next(c for c in result.checks if c.name == "ambient_cloudsdk")
+    assert ambient_check.status == "error"
+    assert result.exit_code != 0
+
+
+@pytest.mark.usefixtures("fake_gcloud")
+def test_doctor_strict_rejects_approval_without_gcloud_binding(
+    project_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered", gcloud_trust=None)
+    isolated = ctx.expected_cloudsdk_config()
+    isolated.mkdir(parents=True)
+    (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
+
+    result = run_doctor(project_tree, interactive=False, strict=True)
+
+    approval_check = next(c for c in result.checks if c.name == "approval")
+    assert approval_check.status == "error"
+
+
+@pytest.mark.usefixtures("fake_gcloud")
+def test_doctor_reports_invalid_policy(project_tree: Path) -> None:
+    policy_path = paths.user_config_path() / "policy.toml"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_text("version = 1\n[policy\n", encoding="utf-8")
+    policy_path.chmod(0o600)
+
+    result = run_doctor(project_tree, interactive=False)
+
+    policy_check = next(c for c in result.checks if c.name == "policy")
+    assert policy_check.status == "error"
+    assert result.exit_code == 7

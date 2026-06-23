@@ -1,1 +1,2 @@
 uv>=0.11.6
+cyclonedx-bom==6.1.3

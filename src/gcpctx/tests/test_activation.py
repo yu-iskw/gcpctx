@@ -19,28 +19,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from gcpctx import paths
 from gcpctx.activation import activate, deactivate, missing_config_result
-from gcpctx.approvals import add_approval
+from gcpctx.approvals import add_approval, find_matching_approval
 from gcpctx.errors import ApprovalRequiredError, CredentialConflictError
 from gcpctx.models import ActivationRequest
 from gcpctx.project_context import resolve_project_context
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-@pytest.fixture(autouse=True)
-def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cache = tmp_path / "cache" / "gcpctx"
-    config = tmp_path / "config" / "gcpctx"
-    cache.mkdir(parents=True)
-    config.mkdir(parents=True)
-    cache.chmod(0o700)
-    config.chmod(0o700)
-    monkeypatch.setattr("gcpctx.paths.user_cache_path", lambda: cache)
-    monkeypatch.setattr("gcpctx.paths.user_config_path", lambda: config)
-    monkeypatch.setattr("gcpctx.paths.context_base_dir", lambda: cache / "contexts")
-    monkeypatch.setattr("gcpctx.paths.approvals_file", lambda: config / "approvals.json")
 
 
 def test_deactivate_inactive() -> None:
@@ -88,6 +75,22 @@ def test_activate_with_approval(project_tree: Path) -> None:
     assert result.exports["GCPCTX_ACTIVE"] == "1"
 
 
+def test_activate_exports_cloudsdk_core_project_matches_profile(project_tree: Path) -> None:
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered")
+    result = activate(
+        ActivationRequest(
+            cwd=project_tree,
+            shell_name="zsh",
+            interactive=False,
+            skip_gcloud_init=True,
+        )
+    )
+    assert result.active is True
+    assert result.exports["CLOUDSDK_CORE_PROJECT"] == ctx.project
+    assert result.exports["GCPCTX_PROJECT"] == ctx.project
+
+
 def test_gac_conflict_non_interactive(
     project_tree: Path,
     tmp_path: Path,
@@ -104,3 +107,28 @@ def test_gac_conflict_non_interactive(
     )
     with pytest.raises(CredentialConflictError):
         activate(request)
+
+
+def test_once_approval_preserved_when_adc_not_initialized(
+    project_tree: Path,
+) -> None:
+    policy_path = paths.user_config_path() / "policy.toml"
+    policy_path.write_text(
+        "version = 1\n\n[policy]\nrequire_initialized_adc_for_hook = true\n",
+        encoding="utf-8",
+    )
+    policy_path.chmod(0o600)
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="once")
+    result = activate(
+        ActivationRequest(
+            cwd=project_tree,
+            shell_name="zsh",
+            interactive=False,
+            hook_mode=True,
+            skip_gcloud_init=True,
+        )
+    )
+    assert result.active is False
+    assert result.readiness == "approved_not_initialized"
+    assert find_matching_approval(ctx) is not None
