@@ -34,7 +34,7 @@ def resolve_mise_gcloud_path() -> str:
             text=True,
             check=False,
             timeout=30,
-        )
+        )  # nosec B603
     except (OSError, subprocess.SubprocessError) as exc:
         msg = f"failed to run mise which gcloud: {exc}"
         raise GcloudNotFoundError(msg) from exc
