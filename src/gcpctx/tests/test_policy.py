@@ -77,3 +77,10 @@ def test_policy_rejects_unknown_top_level_key() -> None:
 
     with pytest.raises(PolicyViolationError):
         load_policy()
+
+
+def test_policy_rejects_malformed_toml() -> None:
+    _write_policy(paths.user_config_path(), "version = 1\n[policy\n")
+
+    with pytest.raises(PolicyViolationError):
+        load_policy()

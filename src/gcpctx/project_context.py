@@ -19,8 +19,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from gcpctx.config import hash_config_bytes, load_config_from_bytes, select_profile
+from gcpctx.context_id import ContextIdInput, derive_context_id
 from gcpctx.discovery import config_path, find_project_root
 from gcpctx.errors import ConfigNotFoundError
+from gcpctx.paths import cloudsdk_config_dir
 from gcpctx.policy import SecurityPolicy, load_policy
 from gcpctx.security import check_config_permissions, reject_symlink, secure_read_text
 
@@ -46,6 +48,20 @@ class ResolvedProjectContext:
     @property
     def service_account(self) -> str:
         return self.profile.service_account
+
+    def context_id(self) -> str:
+        return derive_context_id(
+            ContextIdInput(
+                root=self.root,
+                profile=self.profile_name,
+                project=self.project,
+                service_account=self.service_account,
+                config_sha256=self.config_sha256,
+            )
+        )
+
+    def expected_cloudsdk_config(self) -> Path:
+        return cloudsdk_config_dir(self.context_id())
 
 
 def resolve_project_context(

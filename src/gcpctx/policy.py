@@ -186,7 +186,11 @@ def validate_env_keys_allowed(env_keys: set[str], policy: SecurityPolicy) -> Non
 def _load_policy_file(path: str) -> SecurityPolicy:
     policy_path = Path(path)
     reject_symlink(policy_path)
-    raw = tomllib.loads(secure_read_text(policy_path))
+    try:
+        raw = tomllib.loads(secure_read_text(policy_path))
+    except tomllib.TOMLDecodeError as exc:
+        msg = f"policy {path}: invalid TOML: {exc}"
+        raise PolicyViolationError(msg) from exc
     try:
         parsed = PolicyFile.model_validate(raw)
     except ValidationError as exc:

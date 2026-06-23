@@ -15,10 +15,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from gcpctx import paths
 from gcpctx.approvals import add_approval, find_matching_approval, revoke_approval
+from gcpctx.policy import SecurityPolicy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 
 if TYPE_CHECKING:
@@ -56,3 +58,10 @@ def test_revoke(project_tree: Path) -> None:
     ctx = _ctx(project_tree, "sha1")
     add_approval(ctx, mode="remembered")
     assert revoke_approval(ctx)
+
+
+def test_gcloud_binding_requires_trust(project_tree: Path) -> None:
+    ctx = _ctx(project_tree, "sha1")
+    add_approval(ctx, mode="remembered")
+    strict_policy = replace(SecurityPolicy(), require_gcloud_path_approval=True, mode="strict")
+    assert find_matching_approval(ctx, policy=strict_policy, gcloud_trust=None) is None

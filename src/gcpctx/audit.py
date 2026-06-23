@@ -20,13 +20,11 @@ import os
 from typing import TYPE_CHECKING, Any
 
 from gcpctx import paths
-from gcpctx.security import ensure_dir, file_lock, is_posix_platform, reject_symlink
+from gcpctx.security import FILE_MODE, ensure_dir, file_lock, is_posix_platform, reject_symlink
 from gcpctx.timeutil import utc_now_iso
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-FILE_MODE = 0o600
 
 
 def audit_file() -> Path:

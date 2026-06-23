@@ -24,11 +24,9 @@ from gcpctx.approvals import (
     find_matching_approval,
     prompt_for_approval,
 )
-from gcpctx.context_id import ContextIdInput, derive_context_id
 from gcpctx.errors import ConfigNotFoundError, CredentialConflictError
 from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.models import ActivationRequest, ActivationResult
-from gcpctx.paths import cloudsdk_config_dir
 from gcpctx.policy import load_policy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 
@@ -48,16 +46,8 @@ def activate(request: ActivationRequest) -> ActivationResult:
 
     trust = resolve_trusted_gcloud(request.cwd, policy=policy)
 
-    ctx_id = derive_context_id(
-        ContextIdInput(
-            root=ctx.root,
-            profile=ctx.profile_name,
-            project=ctx.project,
-            service_account=ctx.service_account,
-            config_sha256=ctx.config_sha256,
-        )
-    )
-    config_dir = cloudsdk_config_dir(ctx_id)
+    ctx_id = ctx.context_id()
+    config_dir = ctx.expected_cloudsdk_config()
 
     approval = find_matching_approval(ctx, policy=policy, gcloud_trust=trust)
     if approval is None:

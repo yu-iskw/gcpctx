@@ -242,7 +242,7 @@ def _identity_matches(
     )
 
 
-def _record_matches(  # noqa: PLR0911
+def _record_matches(  # noqa: PLR0911, PLR0912
     record: ApprovalRecord,
     ctx: ResolvedProjectContext,
     root_str: str,
@@ -253,7 +253,9 @@ def _record_matches(  # noqa: PLR0911
         return False
     if record.schema_version < APPROVAL_SCHEMA_V2 and policy.strict:
         return False
-    if policy.require_gcloud_path_approval and gcloud_trust is not None:
+    if policy.require_gcloud_path_approval:
+        if gcloud_trust is None:
+            return False
         if record.gcloud_path != gcloud_trust.path:
             return False
         if (
