@@ -20,12 +20,26 @@ from typing import TYPE_CHECKING
 import pytest
 
 from gcpctx.approvals import add_approval
+from gcpctx.context_id import ContextIdInput, derive_context_id
 from gcpctx.doctor import run_doctor
 from gcpctx.paths import cloudsdk_config_dir
-from gcpctx.project_context import resolve_project_context
+from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _expected_cloudsdk(ctx: ResolvedProjectContext) -> Path:
+    ctx_id = derive_context_id(
+        ContextIdInput(
+            root=ctx.root,
+            profile=ctx.profile_name,
+            project=ctx.project,
+            service_account=ctx.service_account,
+            config_sha256=ctx.config_sha256,
+        )
+    )
+    return cloudsdk_config_dir(ctx_id)
 
 
 @pytest.fixture(autouse=True)
@@ -40,8 +54,7 @@ def test_doctor_happy_path(
 ) -> None:
     ctx = resolve_project_context(project_tree)
     add_approval(ctx, mode="remembered")
-    ctx_id = "doctorctx1234567890123456"
-    isolated = cloudsdk_config_dir(ctx_id)
+    isolated = _expected_cloudsdk(ctx)
     isolated.mkdir(parents=True)
     (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
     monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
@@ -53,11 +66,12 @@ def test_doctor_happy_path(
     assert "config" in names
     assert "profile" in names
     assert "approval" in names or "approval_expiry" in names
-    assert "isolation" in names
+    assert "expected_context" in names
+    assert "ambient_cloudsdk" in names
     config_check = next(c for c in result.checks if c.name == "config")
-    isolation_check = next(c for c in result.checks if c.name == "isolation")
+    ambient_check = next(c for c in result.checks if c.name == "ambient_cloudsdk")
     assert config_check.status == "ok"
-    assert isolation_check.status == "ok"
+    assert ambient_check.status == "ok"
 
 
 @pytest.mark.usefixtures("fake_gcloud")
@@ -76,3 +90,35 @@ def test_doctor_isolation_error_when_not_under_cache(
 
     isolation_check = next(c for c in result.checks if c.name == "isolation")
     assert isolation_check.status == "error"
+
+
+@pytest.mark.usefixtures("fake_gcloud")
+def test_doctor_strict_fails_when_ambient_points_to_stale_context(
+    project_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered")
+    expected = _expected_cloudsdk(ctx)
+    expected.mkdir(parents=True)
+    (expected / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+
+    stale_id = derive_context_id(
+        ContextIdInput(
+            root=ctx.root,
+            profile=ctx.profile_name,
+            project=ctx.project,
+            service_account=ctx.service_account,
+            config_sha256="0" * 64,
+        )
+    )
+    stale = cloudsdk_config_dir(stale_id)
+    stale.mkdir(parents=True)
+    (stale / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(stale))
+
+    result = run_doctor(project_tree, interactive=False, strict=True)
+
+    ambient_check = next(c for c in result.checks if c.name == "ambient_cloudsdk")
+    assert ambient_check.status == "error"
+    assert result.exit_code != 0

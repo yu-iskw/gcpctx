@@ -92,7 +92,7 @@ def clear_fingerprint_cache() -> None:
     _FINGERPRINT_CACHE.clear()
 
 
-def validate_gcloud_path(
+def validate_gcloud_path(  # noqa: PLR0912
     path: str,
     *,
     cwd: Path,
@@ -118,7 +118,8 @@ def validate_gcloud_path(
         msg = f"gcloud path {resolved} is not in policy allowed_paths"
         raise GcloudTrustError(msg)
 
-    _reject_gcloud_under_cwd(resolved, cwd)
+    if gcloud_policy.deny_if_under_cwd:
+        _reject_gcloud_under_cwd(resolved, cwd)
     _reject_world_writable_parents(resolved, gcloud_policy.deny_world_writable_parent)
     warnings.extend(_owner_warnings(resolved, effective_strict))
 

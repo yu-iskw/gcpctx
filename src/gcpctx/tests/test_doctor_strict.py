@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from gcpctx.approvals import add_approval
+from gcpctx.context_id import ContextIdInput, derive_context_id
 from gcpctx.doctor import run_doctor
 from gcpctx.paths import cloudsdk_config_dir
 from gcpctx.project_context import resolve_project_context
@@ -29,13 +30,25 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.usefixtures("fake_gcloud")
-def test_doctor_strict_without_policy_file(project_tree: Path) -> None:
+def test_doctor_strict_without_policy_file(
+    project_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     ctx = resolve_project_context(project_tree)
     add_approval(ctx, mode="remembered")
-    ctx_id = "doctorctx1234567890123456"
+    ctx_id = derive_context_id(
+        ContextIdInput(
+            root=ctx.root,
+            profile=ctx.profile_name,
+            project=ctx.project,
+            service_account=ctx.service_account,
+            config_sha256=ctx.config_sha256,
+        )
+    )
     isolated = cloudsdk_config_dir(ctx_id)
     isolated.mkdir(parents=True)
     (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
 
     result = run_doctor(project_tree, interactive=False, strict=True)
 

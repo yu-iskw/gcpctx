@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Append-only security audit log."""
+"""Append-oriented security audit log."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import os
 from typing import TYPE_CHECKING, Any
 
 from gcpctx import paths
-from gcpctx.security import ensure_dir, file_lock, reject_symlink
+from gcpctx.security import ensure_dir, file_lock, is_posix_platform, reject_symlink
 from gcpctx.timeutil import utc_now_iso
 
 if TYPE_CHECKING:
@@ -45,11 +45,16 @@ def log_event(event_type: str, **fields: Any) -> None:
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         fd = os.open(path, flags, FILE_MODE)
+        handed_off = False
         try:
+            if is_posix_platform():
+                os.fchmod(fd, FILE_MODE)
             with os.fdopen(fd, "a", encoding="utf-8") as handle:
+                handed_off = True
                 handle.write(line)
                 handle.flush()
                 os.fsync(handle.fileno())
         except OSError:
-            os.close(fd)
+            if not handed_off:
+                os.close(fd)
             raise

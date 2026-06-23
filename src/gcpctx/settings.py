@@ -19,6 +19,8 @@ import tomllib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import tomli_w
+
 from gcpctx import paths
 from gcpctx.security import ensure_dir, ensure_managed_file, secure_read_text
 
@@ -50,7 +52,7 @@ def load_settings() -> UserSettings:
 
 def save_settings(settings: UserSettings) -> None:
     ensure_dir(settings_file().parent)
-    lines = ["version = 1\n"]
+    payload: dict[str, object] = {"version": 1}
     if settings.gcloud_path:
-        lines.append(f'gcloud_path = "{settings.gcloud_path}"\n')
-    ensure_managed_file(settings_file(), "".join(lines))
+        payload["gcloud_path"] = settings.gcloud_path
+    ensure_managed_file(settings_file(), tomli_w.dumps(payload))

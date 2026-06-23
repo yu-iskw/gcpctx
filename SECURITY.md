@@ -66,4 +66,5 @@ We aim to acknowledge reports within 5 business days.
 
 - No `shell=True` for subprocess invocation.
 - No logging of ADC contents, tokens, or `GOOGLE_APPLICATION_CREDENTIALS` paths in audit events.
+- Audit log is append-oriented with owner-only permissions enforced on each write.
 - Run `make lint` and vulnerability scans before release (see CONTRIBUTING.md).

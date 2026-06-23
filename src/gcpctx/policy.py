@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from gcpctx import paths
 from gcpctx.errors import PolicyViolationError
 from gcpctx.security import reject_symlink, secure_read_text
@@ -67,6 +69,65 @@ class SecurityPolicy:
     @property
     def strict(self) -> bool:
         return self.mode == "strict"
+
+
+class PolicySection(BaseModel):
+    """Policy table in policy.toml."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    mode: Literal["default", "strict"] = "default"
+    approval_ttl_days: int = Field(default=30, ge=1, le=365)
+    require_initialized_adc_for_hook: bool | None = None
+    require_gcloud_path_approval: bool | None = None
+
+
+class AllowSection(BaseModel):
+    """Allowlist table in policy.toml."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    projects: list[str] = Field(default_factory=list)
+    service_account_domains: list[str] = Field(default_factory=list)
+    quota_projects: list[str] = Field(default_factory=list)
+
+
+class DenyEnvSection(BaseModel):
+    """Denied env keys."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    keys: list[str] = Field(default_factory=list)
+
+
+class DenySection(BaseModel):
+    """Deny table in policy.toml."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    env: DenyEnvSection = Field(default_factory=DenyEnvSection)
+
+
+class GcloudSection(BaseModel):
+    """gcloud trust table in policy.toml."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    allowed_paths: list[str] = Field(default_factory=list)
+    deny_if_under_cwd: bool = True
+    deny_world_writable_parent: bool = True
+
+
+class PolicyFile(BaseModel):
+    """Top-level policy.toml schema."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    version: Literal[1]
+    policy: PolicySection = Field(default_factory=PolicySection)
+    allow: AllowSection = Field(default_factory=AllowSection)
+    deny: DenySection = Field(default_factory=DenySection)
+    gcloud: GcloudSection = Field(default_factory=GcloudSection)
 
 
 def load_policy() -> SecurityPolicy:
@@ -126,43 +187,38 @@ def _load_policy_file(path: str) -> SecurityPolicy:
     policy_path = Path(path)
     reject_symlink(policy_path)
     raw = tomllib.loads(secure_read_text(policy_path))
-    if raw.get("version") != 1:
-        msg = f"policy {path}: version must be 1"
-        raise PolicyViolationError(msg)
-    policy_table = raw.get("policy", {})
-    allow_table = raw.get("allow", {})
-    deny_table = raw.get("deny", {})
-    gcloud_table = raw.get("gcloud", {})
-    deny_env = deny_table.get("env", {}) if isinstance(deny_table, dict) else {}
-    extra_denied = deny_env.get("keys", []) if isinstance(deny_env, dict) else []
-    denied_keys = DEFAULT_DENIED_ENV_KEYS | frozenset(extra_denied)
-    mode = policy_table.get("mode", "default")
-    if mode not in {"default", "strict"}:
-        msg = f"policy {path}: invalid mode {mode!r}"
-        raise PolicyViolationError(msg)
+    try:
+        parsed = PolicyFile.model_validate(raw)
+    except ValidationError as exc:
+        errors = exc.errors()
+        detail = errors[0]["msg"] if errors else "validation failed"
+        msg = f"policy {path}: invalid schema: {detail}"
+        raise PolicyViolationError(msg) from exc
+    return _policy_from_file(path, parsed)
+
+
+def _policy_from_file(path: str, parsed: PolicyFile) -> SecurityPolicy:
+    mode = parsed.policy.mode
+    require_adc = parsed.policy.require_initialized_adc_for_hook
+    if require_adc is None:
+        require_adc = mode == "strict"
+    require_gcloud = parsed.policy.require_gcloud_path_approval
+    if require_gcloud is None:
+        require_gcloud = mode == "strict"
+    denied_keys = DEFAULT_DENIED_ENV_KEYS | frozenset(parsed.deny.env.keys)
     return SecurityPolicy(
         source=path,
         mode=mode,
-        approval_ttl_days=int(policy_table.get("approval_ttl_days", 30)),
-        require_initialized_adc_for_hook=bool(
-            policy_table.get("require_initialized_adc_for_hook", mode == "strict")
-        ),
-        require_gcloud_path_approval=bool(
-            policy_table.get("require_gcloud_path_approval", mode == "strict")
-        ),
-        allow_projects=_tuple_of_str(allow_table.get("projects")),
-        allow_service_account_domains=_tuple_of_str(allow_table.get("service_account_domains")),
-        allow_quota_projects=_tuple_of_str(allow_table.get("quota_projects")),
+        approval_ttl_days=parsed.policy.approval_ttl_days,
+        require_initialized_adc_for_hook=require_adc,
+        require_gcloud_path_approval=require_gcloud,
+        allow_projects=tuple(parsed.allow.projects),
+        allow_service_account_domains=tuple(parsed.allow.service_account_domains),
+        allow_quota_projects=tuple(parsed.allow.quota_projects),
         deny_env_keys=denied_keys,
         gcloud=GcloudPolicy(
-            allowed_paths=_tuple_of_str(gcloud_table.get("allowed_paths")),
-            deny_if_under_cwd=bool(gcloud_table.get("deny_if_under_cwd", True)),
-            deny_world_writable_parent=bool(gcloud_table.get("deny_world_writable_parent", True)),
+            allowed_paths=tuple(parsed.gcloud.allowed_paths),
+            deny_if_under_cwd=parsed.gcloud.deny_if_under_cwd,
+            deny_world_writable_parent=parsed.gcloud.deny_world_writable_parent,
         ),
     )
-
-
-def _tuple_of_str(value: object) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        return ()
-    return tuple(str(item) for item in value)

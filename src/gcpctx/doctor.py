@@ -23,6 +23,7 @@ from typing import Literal
 
 from gcpctx import audit, gcloud as gcloud_mod, paths
 from gcpctx.approvals import find_matching_approval
+from gcpctx.context_id import ContextIdInput, derive_context_id
 from gcpctx.discovery import find_project_root
 from gcpctx.errors import ConfigNotFoundError, GcpctxError
 from gcpctx.gcloud_trust import GcloudTrustResult, resolve_trusted_gcloud
@@ -89,15 +90,16 @@ def run_doctor(
     collector.add("profile", "ok", f"Profile {ctx.profile_name!r} resolved")
     _check_policy(collector, policy)
     _check_approval(collector, ctx, policy, trust)
-    cloudsdk = os.environ.get("CLOUDSDK_CONFIG", "")
-    _check_isolation(collector, cloudsdk)
+    expected_cloudsdk = _expected_cloudsdk_config(ctx)
+    _check_expected_context(collector, expected_cloudsdk)
+    _check_gcloud_state(collector, expected_cloudsdk, ctx.profile, is_interactive, effective_strict)
+    if effective_strict:
+        _check_impersonation_iam(collector, expected_cloudsdk, ctx)
+    ambient_cloudsdk = os.environ.get("CLOUDSDK_CONFIG", "")
+    _check_ambient_cloudsdk(collector, ambient_cloudsdk, expected_cloudsdk, is_interactive)
+    if ambient_cloudsdk:
+        _check_isolation(collector, ambient_cloudsdk)
     _check_env_project(collector, ctx)
-    if cloudsdk:
-        _check_gcloud_state(
-            collector, Path(cloudsdk), ctx.profile, is_interactive, effective_strict
-        )
-        if effective_strict:
-            _check_impersonation_iam(collector, Path(cloudsdk), ctx)
     _check_state_permissions(collector, effective_strict)
     _check_gac(collector, is_interactive)
     return _finalize(collector, effective_strict)
@@ -196,10 +198,92 @@ def _check_env_project(collector: _CheckCollector, ctx: ResolvedProjectContext) 
         )
 
 
+def _expected_cloudsdk_config(ctx: ResolvedProjectContext) -> Path:
+    ctx_id = derive_context_id(
+        ContextIdInput(
+            root=ctx.root,
+            profile=ctx.profile_name,
+            project=ctx.project,
+            service_account=ctx.service_account,
+            config_sha256=ctx.config_sha256,
+        )
+    )
+    return paths.cloudsdk_config_dir(ctx_id)
+
+
+def _resolve_config_path(path_str: str) -> Path | None:
+    if not path_str:
+        return None
+    try:
+        return Path(path_str).resolve()
+    except OSError:
+        return None
+
+
+def _check_expected_context(collector: _CheckCollector, expected_cloudsdk: Path) -> None:
+    cache = paths.user_cache_path().resolve()
+    try:
+        resolved = expected_cloudsdk.resolve()
+    except OSError:
+        collector.add(
+            "expected_context",
+            "error",
+            f"Expected context path is invalid: {expected_cloudsdk}",
+        )
+        return
+    if resolved.is_relative_to(cache):
+        collector.add("expected_context", "ok", f"Expected context path: {resolved}")
+        return
+    collector.add(
+        "expected_context",
+        "error",
+        f"Expected context path not under gcpctx cache: {resolved}",
+    )
+
+
+def _check_ambient_cloudsdk(
+    collector: _CheckCollector,
+    ambient: str,
+    expected_cloudsdk: Path,
+    interactive: bool,
+) -> None:
+    expected_resolved = _resolve_config_path(str(expected_cloudsdk))
+    ambient_resolved = _resolve_config_path(ambient)
+    if ambient_resolved is None:
+        status: CheckStatus = "warning" if interactive and not collector.strict else "error"
+        collector.add(
+            "ambient_cloudsdk",
+            status,
+            "CLOUDSDK_CONFIG unset in environment",
+            'eval "$(gcpctx activate --shell zsh)"',
+        )
+        return
+    if expected_resolved is not None and ambient_resolved == expected_resolved:
+        collector.add(
+            "ambient_cloudsdk",
+            "ok",
+            f"CLOUDSDK_CONFIG matches expected context: {ambient_resolved}",
+        )
+        return
+    status = "warning" if interactive and not collector.strict else "error"
+    expected_display = expected_resolved or expected_cloudsdk
+    collector.add(
+        "ambient_cloudsdk",
+        status,
+        f"CLOUDSDK_CONFIG {ambient_resolved} != expected {expected_display}",
+        'eval "$(gcpctx activate --shell zsh)"',
+    )
+
+
 def _check_state_permissions(collector: _CheckCollector, strict: bool) -> None:
     if not strict:
         return
-    targets = [paths.approvals_file(), paths.user_config_path(), paths.user_cache_path()]
+    targets = [
+        paths.approvals_file(),
+        paths.user_config_path(),
+        paths.user_cache_path(),
+        audit.audit_file(),
+    ]
     for target in targets:
         if not target.exists():
             continue
@@ -356,6 +440,8 @@ def _severity_exit(name: str) -> int:
         "impersonation_iam": 5,
         "state_permissions": 4,
         "env_project": 2,
+        "expected_context": 2,
+        "ambient_cloudsdk": 2,
         "sa_project_match": 2,
         "approval_expiry": 3,
     }

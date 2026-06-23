@@ -17,7 +17,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from gcpctx.gcloud_trust import clear_fingerprint_cache, fingerprint_gcloud
+import pytest
+
+from gcpctx.errors import GcloudTrustError
+from gcpctx.gcloud_trust import clear_fingerprint_cache, fingerprint_gcloud, validate_gcloud_path
+from gcpctx.policy import GcloudPolicy, SecurityPolicy
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -36,3 +40,27 @@ def test_fingerprint_gcloud_caches_until_content_changes(tmp_path: Path) -> None
     third = fingerprint_gcloud(str(binary))
     assert third is not None
     assert third != first
+
+
+def test_validate_gcloud_rejects_binary_under_cwd_by_default(
+    project_tree: Path,
+) -> None:
+    clear_fingerprint_cache()
+    binary = project_tree / "gcloud"
+    binary.write_bytes(b"fake-gcloud")
+    binary.chmod(0o755)
+    policy = SecurityPolicy()
+    with pytest.raises(GcloudTrustError, match="must not live under project"):
+        validate_gcloud_path(str(binary), cwd=project_tree, policy=policy)
+
+
+def test_validate_gcloud_allows_binary_under_cwd_when_policy_disabled(
+    project_tree: Path,
+) -> None:
+    clear_fingerprint_cache()
+    binary = project_tree / "gcloud"
+    binary.write_bytes(b"fake-gcloud")
+    binary.chmod(0o755)
+    policy = SecurityPolicy(gcloud=GcloudPolicy(deny_if_under_cwd=False))
+    result = validate_gcloud_path(str(binary), cwd=project_tree, policy=policy)
+    assert result.path == str(binary.resolve())
