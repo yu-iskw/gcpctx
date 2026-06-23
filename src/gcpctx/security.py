@@ -109,10 +109,7 @@ def _chmod_managed_ancestors(path: Path) -> None:  # noqa: PLR0912
             raise UnsafePermissionError(msg)
 
 
-def ensure_secure_tree(root: Path) -> None:
-    """Ensure managed ancestors of *root* are owner-only without scanning /."""
-    if not _chmod_supported():
-        return
+def _managed_ancestor_parts(root: Path) -> list[Path]:
     config_root, cache_root = _managed_roots()
     current = root.resolve()
     parts: list[Path] = []
@@ -130,6 +127,14 @@ def ensure_secure_tree(root: Path) -> None:
         if parent == current:
             break
         current = parent
+    return parts
+
+
+def ensure_secure_tree(root: Path) -> None:
+    """Ensure managed ancestors of *root* are owner-only without scanning /."""
+    if not _chmod_supported():
+        return
+    parts = _managed_ancestor_parts(root)
     if not parts:
         return
     _chmod_managed_ancestors(parts[0])

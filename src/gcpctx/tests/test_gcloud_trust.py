@@ -104,7 +104,10 @@ def test_resolve_trusted_gcloud_warns_on_stale_pin(
         lambda: UserSettings(gcloud_path=STALE_PIN),
     )
     gcloud_script = fake_gcloud.parent / "gcloud"
-    result = resolve_trusted_gcloud(project_tree)
+    policy = SecurityPolicy(
+        gcloud=GcloudPolicy(deny_if_under_cwd=False, deny_world_writable_parent=False)
+    )
+    result = resolve_trusted_gcloud(project_tree, policy=policy)
     assert result.path == str(gcloud_script.resolve())
     assert any(
         "Pinned gcloud_path '/no/such/gcpctx-stale-gcloud-pin' not found" in warning
