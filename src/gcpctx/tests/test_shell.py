@@ -39,10 +39,10 @@ def test_render_activate_with_spaces() -> None:
     )
     code = render_shell(result, "bash")
     assert "export GCPCTX_ROOT='/path/with spaces/and;semicolons'" in code
-    bash = shutil.which("bash")
-    if bash is None:
+    bash_path = shutil.which("bash")
+    if bash_path is None:
         pytest.skip("bash not available")
-    proc = subprocess.run([bash, "-n"], input=code, text=True, check=False)
+    proc = subprocess.run([bash_path, "-n"], input=code, text=True, check=False)
     assert proc.returncode == 0
 
 
