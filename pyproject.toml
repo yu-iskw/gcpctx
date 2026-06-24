@@ -23,7 +23,7 @@ packages = ["src/gcpctx"]
 
 [project]
 name = "gcpctx"
-version = "0.3.0"
+version = "0.4.0"
 authors = [{ name = "yu-iskw" }]
 readme = "README.md"
 license = { file = "LICENSE" }

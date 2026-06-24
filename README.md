@@ -29,7 +29,7 @@ Choose one of these options:
 uvx gcpctx --help
 
 # Pin a version
-uvx gcpctx@0.3.0 status
+uvx gcpctx@0.4.0 status
 
 # Run from a local checkout (before publish)
 uvx --from /path/to/gcpctx gcpctx --help
@@ -50,7 +50,7 @@ uvx gcpctx status
 uvx gcpctx doctor
 ```
 
-Shell hooks installed via `gcpctx init zsh` call `gcpctx` on your `PATH`. After choosing `uvx`, either add a shell alias (`alias gcpctx='uvx gcpctx'`) or install with `pipx` / `uv tool install` for hook integration.
+Shell hooks from `gcpctx init zsh` call `gcpctx` on your `PATH`. After choosing `uvx`, either add a shell alias (`alias gcpctx='uvx gcpctx'`) or install with `pipx` / `uv tool install` for hook integration.
 
 ### pipx
 
@@ -104,11 +104,15 @@ See [examples/README.md](examples/README.md) for a manual integration demo that 
 ## Shell integration
 
 ```bash
+# Print snippet (review first)
 gcpctx init zsh   # or: gcpctx init bash
+
+# Or append to your shell rc (check for existing '# >>> gcpctx hook >>>' first)
+gcpctx init zsh >> ~/.zshrc
 exec $SHELL       # reload shell
 ```
 
-The hook runs `gcpctx hook eval` on every directory change. **Stdout is shell code only**; diagnostics go to stderr.
+The hook runs `gcpctx hook eval` on every directory change. **`init` and `hook eval` write shell code to stdout only**; setup instructions go to stderr.
 
 Manual activation without hooks:
 
@@ -117,7 +121,7 @@ eval "$(gcpctx activate --shell zsh)"
 eval "$(gcpctx deactivate --shell zsh)"  # restore prior env
 ```
 
-Switch profile (after `gcpctx init` installs the wrapper):
+Switch profile (after adding the `gcpctx-use` wrapper from `gcpctx init`):
 
 ```bash
 gcpctx-use prod-readonly
@@ -129,7 +133,7 @@ Integrated terminals **inherit the parent shell environment**. Subprocesses star
 
 ### Recommended setup
 
-1. Install shell hooks (`gcpctx init zsh`) or manually `eval "$(gcpctx activate --shell zsh)"` in your login shell.
+1. Add the shell hook to your rc file (`gcpctx init zsh`, then append or paste into `~/.zshrc`), or manually `eval "$(gcpctx activate --shell zsh)"` in your login shell.
 2. Open the IDE **from that shell** (`cursor .`, `code .`) so new integrated terminals start activated.
 3. Confirm with `gcpctx status` in an integrated terminal.
 

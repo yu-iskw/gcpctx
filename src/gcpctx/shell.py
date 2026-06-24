@@ -118,3 +118,9 @@ def shell_use_wrapper() -> str:
   fi
   eval "$(gcpctx use "$1" --shell "${SHELL##*/}")"
 }"""
+
+
+def render_init_for_shell(shell: ShellName) -> str:
+    """Return hook snippet plus gcpctx-use wrapper for shell rc files."""
+    hook = zsh_hook_snippet() if shell == "zsh" else bash_hook_snippet()
+    return f"\n{hook}\n{shell_use_wrapper()}\n"
