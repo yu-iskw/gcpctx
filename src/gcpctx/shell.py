@@ -43,18 +43,6 @@ def shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
-def render_shell(result: ActivationResult, shell: ShellName) -> str:
-    """Render activation or deactivation shell code."""
-    if shell not in SUPPORTED_SHELLS:
-        msg = f"unsupported shell: {shell}"
-        raise ValueError(msg)
-    if not result.active:
-        if result.noop:
-            return ""
-        return _render_deactivate()
-    return _render_activate(result)
-
-
 def _render_activate(result: ActivationResult) -> str:
     lines: list[str] = [
         "export GCPCTX_PREV_CLOUDSDK_CONFIG=${CLOUDSDK_CONFIG-}",
@@ -82,11 +70,23 @@ def _render_deactivate() -> str:
     return "\n".join(lines)
 
 
+def render_shell(result: ActivationResult, shell: ShellName) -> str:
+    """Render activation or deactivation shell code."""
+    if shell not in SUPPORTED_SHELLS:
+        msg = f"unsupported shell: {shell}"
+        raise ValueError(msg)
+    if not result.active:
+        if result.noop:
+            return ""
+        return _render_deactivate()
+    return _render_activate(result)
+
+
 def zsh_hook_snippet() -> str:
     """Return zsh hook installation snippet."""
     return """# >>> gcpctx hook >>>
 _gcpctx_hook() {
-  eval "$(gcpctx hook eval zsh)"
+  eval "$(gcpctx hook --shell zsh)"
 }
 
 autoload -U add-zsh-hook
@@ -99,7 +99,7 @@ def bash_hook_snippet() -> str:
     """Return bash hook installation snippet."""
     return """# >>> gcpctx hook >>>
 _gcpctx_hook() {
-  eval "$(gcpctx hook eval bash)"
+  eval "$(gcpctx hook --shell bash)"
 }
 
 case ";$PROMPT_COMMAND;" in
@@ -109,18 +109,18 @@ esac
 # <<< gcpctx hook <<<"""
 
 
-def shell_use_wrapper() -> str:
-    """Return shell function wrapper for gcpctx-use."""
-    return """gcpctx-use() {
+def shell_switch_wrapper() -> str:
+    """Return shell function wrapper for gcpctx-switch."""
+    return """gcpctx-switch() {
   if [ -z "$1" ]; then
-    echo "usage: gcpctx-use <profile>" >&2
+    echo "usage: gcpctx-switch <profile>" >&2
     return 1
   fi
-  eval "$(gcpctx use "$1" --shell "${SHELL##*/}")"
+  eval "$(gcpctx activate "$1" --shell "${SHELL##*/}")"
 }"""
 
 
 def render_init_for_shell(shell: ShellName) -> str:
-    """Return hook snippet plus gcpctx-use wrapper for shell rc files."""
+    """Return hook snippet plus gcpctx-switch wrapper for shell rc files."""
     hook = zsh_hook_snippet() if shell == "zsh" else bash_hook_snippet()
-    return f"\n{hook}\n{shell_use_wrapper()}\n"
+    return f"\n{hook}\n{shell_switch_wrapper()}\n"

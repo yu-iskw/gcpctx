@@ -10,12 +10,12 @@ Shell integration targets **bash** and **zsh**.
 
 ### Trust boundaries
 
-| Boundary                                   | Trust level               | Notes                                                                                                   |
-| ------------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `.gcpctx.toml` in a repository             | **Untrusted**             | Validated strictly; cannot override project identity or credential paths                                |
-| `~/.config/gcpctx/` and `~/.cache/gcpctx/` | **Trusted user state**    | Atomic writes, advisory locks, symlink rejection, `0600`/`0700` permissions                             |
-| `gcloud` binary                            | **Conditionally trusted** | Resolved path validated; optional per-project pin in `.gcpctx.toml` via `gcpctx config set-gcloud-path` |
-| `policy.toml`                              | **User/org policy**       | Optional allowlists and strict mode                                                                     |
+| Boundary                                   | Trust level               | Notes                                                                                   |
+| ------------------------------------------ | ------------------------- | --------------------------------------------------------------------------------------- |
+| `.gcpctx.toml` in a repository             | **Untrusted**             | Validated strictly; cannot override project identity or credential paths                |
+| `~/.config/gcpctx/` and `~/.cache/gcpctx/` | **Trusted user state**    | Atomic writes, advisory locks, symlink rejection, `0600`/`0700` permissions             |
+| `gcloud` binary                            | **Conditionally trusted** | Resolved path validated; optional per-project pin in `.gcpctx.toml` via `gcpctx config` |
+| `policy.toml`                              | **User/org policy**       | Optional allowlists and strict mode                                                     |
 
 ### Threats mitigated in v0.2
 

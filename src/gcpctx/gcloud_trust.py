@@ -58,40 +58,12 @@ def resolve_gcloud_path(cwd: Path, *, configured: str | None = None) -> str:
             msg = (
                 f"pinned gcloud_path {pin!r} not found and gcloud not on PATH; "
                 "remove gcloud_path from .gcpctx.toml, or run "
-                "gcpctx config set-gcloud-path $(which gcloud) in the project directory"
+                "gcpctx config $(which gcloud) in the project directory"
             )
         else:
             msg = "gcloud not found on PATH"
         raise GcloudNotFoundError(msg)
     return path
-
-
-def resolve_trusted_gcloud(
-    cwd: Path,
-    policy: SecurityPolicy | None = None,
-    *,
-    strict: bool | None = None,
-    configured_path: str | None = None,
-) -> GcloudTrustResult:
-    """Resolve and validate the gcloud binary for *cwd*."""
-    active_policy = policy or load_policy()
-    effective_strict = active_policy.strict if strict is None else strict
-    configured = configured_path if configured_path is not None else _configured_gcloud_path(cwd)
-    path = resolve_gcloud_path(cwd, configured=configured)
-    result = validate_gcloud_path(
-        path,
-        cwd=cwd,
-        policy=active_policy,
-        strict=effective_strict,
-    )
-    if configured and not Path(configured).is_file():
-        stale_warning = f"Pinned gcloud_path {configured!r} not found; using {result.path}"
-        return GcloudTrustResult(
-            path=result.path,
-            sha256=result.sha256,
-            warnings=(stale_warning, *result.warnings),
-        )
-    return result
 
 
 def fingerprint_gcloud(path: str) -> str | None:  # noqa: PLR0911
@@ -114,9 +86,45 @@ def fingerprint_gcloud(path: str) -> str | None:  # noqa: PLR0911
     return digest
 
 
-def clear_fingerprint_cache() -> None:
-    """Reset cached fingerprints (for tests)."""
-    _FINGERPRINT_CACHE.clear()
+def _reject_gcloud_under_cwd(resolved: Path, cwd: Path) -> None:
+    cwd_resolved = cwd.resolve()
+    try:
+        under_cwd = resolved.is_relative_to(cwd_resolved)
+    except AttributeError:
+        under_cwd = str(resolved).startswith(f"{cwd_resolved}{os.sep}")
+    if under_cwd:
+        msg = f"gcloud binary must not live under project directory: {resolved}"
+        raise GcloudTrustError(msg)
+
+
+def _reject_world_writable_parents(resolved: Path, enabled: bool) -> None:
+    if not enabled:
+        return
+    parent = resolved.parent
+    while True:
+        try:
+            mode = parent.stat().st_mode
+        except OSError:
+            break
+        if mode & stat.S_IWOTH:
+            msg = f"gcloud path has world-writable parent directory: {parent}"
+            raise GcloudTrustError(msg)
+        if parent == parent.parent:
+            break
+        parent = parent.parent
+
+
+def _owner_warnings(resolved: Path, strict: bool) -> list[str]:
+    try:
+        owner = resolved.stat().st_uid
+    except OSError:
+        return []
+    if owner in {0, os.getuid()}:
+        return []
+    message = f"gcloud binary owned by uid {owner}, expected current user or root"
+    if strict:
+        raise GcloudTrustError(message)
+    return [message]
 
 
 def validate_gcloud_path(  # noqa: PLR0912
@@ -164,42 +172,34 @@ def validate_gcloud_path(  # noqa: PLR0912
     )
 
 
-def _reject_gcloud_under_cwd(resolved: Path, cwd: Path) -> None:
-    cwd_resolved = cwd.resolve()
-    try:
-        under_cwd = resolved.is_relative_to(cwd_resolved)
-    except AttributeError:
-        under_cwd = str(resolved).startswith(f"{cwd_resolved}{os.sep}")
-    if under_cwd:
-        msg = f"gcloud binary must not live under project directory: {resolved}"
-        raise GcloudTrustError(msg)
+def resolve_trusted_gcloud(
+    cwd: Path,
+    policy: SecurityPolicy | None = None,
+    *,
+    strict: bool | None = None,
+    configured_path: str | None = None,
+) -> GcloudTrustResult:
+    """Resolve and validate the gcloud binary for *cwd*."""
+    active_policy = policy or load_policy()
+    effective_strict = active_policy.strict if strict is None else strict
+    configured = configured_path if configured_path is not None else _configured_gcloud_path(cwd)
+    path = resolve_gcloud_path(cwd, configured=configured)
+    result = validate_gcloud_path(
+        path,
+        cwd=cwd,
+        policy=active_policy,
+        strict=effective_strict,
+    )
+    if configured and not Path(configured).is_file():
+        stale_warning = f"Pinned gcloud_path {configured!r} not found; using {result.path}"
+        return GcloudTrustResult(
+            path=result.path,
+            sha256=result.sha256,
+            warnings=(stale_warning, *result.warnings),
+        )
+    return result
 
 
-def _reject_world_writable_parents(resolved: Path, enabled: bool) -> None:
-    if not enabled:
-        return
-    parent = resolved.parent
-    while True:
-        try:
-            mode = parent.stat().st_mode
-        except OSError:
-            break
-        if mode & stat.S_IWOTH:
-            msg = f"gcloud path has world-writable parent directory: {parent}"
-            raise GcloudTrustError(msg)
-        if parent == parent.parent:
-            break
-        parent = parent.parent
-
-
-def _owner_warnings(resolved: Path, strict: bool) -> list[str]:
-    try:
-        owner = resolved.stat().st_uid
-    except OSError:
-        return []
-    if owner in {0, os.getuid()}:
-        return []
-    message = f"gcloud binary owned by uid {owner}, expected current user or root"
-    if strict:
-        raise GcloudTrustError(message)
-    return [message]
+def clear_fingerprint_cache() -> None:
+    """Reset cached fingerprints (for tests)."""
+    _FINGERPRINT_CACHE.clear()

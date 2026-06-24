@@ -61,6 +61,57 @@ def save_store(store: ApprovalsStore) -> None:
         ensure_managed_file(path, store.model_dump_json(indent=2))
 
 
+def _identity_matches(
+    record: ApprovalRecord,
+    ctx: ResolvedProjectContext,
+    root_str: str,
+) -> bool:
+    return (
+        record.root == root_str
+        and record.profile == ctx.profile_name
+        and record.project == ctx.project
+        and record.service_account == ctx.service_account
+        and record.config_sha256 == ctx.config_sha256
+    )
+
+
+def _record_matches(  # noqa: PLR0911, PLR0912
+    record: ApprovalRecord,
+    ctx: ResolvedProjectContext,
+    root_str: str,
+    policy: SecurityPolicy,
+    gcloud_trust: GcloudTrustResult | None,
+) -> bool:
+    if not _identity_matches(record, ctx, root_str):
+        return False
+    if record.schema_version < APPROVAL_SCHEMA_V2 and policy.strict:
+        return False
+    if policy.require_gcloud_path_approval:
+        if gcloud_trust is None:
+            return False
+        if record.gcloud_path != gcloud_trust.path:
+            return False
+        if (
+            record.gcloud_sha256 is not None
+            and gcloud_trust.sha256 is not None
+            and record.gcloud_sha256 != gcloud_trust.sha256
+        ):
+            return False
+    return True
+
+
+def _is_expired(record: ApprovalRecord) -> bool:
+    if record.mode != "remembered" or not record.expires_at:
+        return False
+    try:
+        expires = datetime.fromisoformat(record.expires_at)
+    except ValueError:
+        return True
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    return datetime.now(tz=UTC) >= expires
+
+
 def find_matching_approval(
     ctx: ResolvedProjectContext,
     *,
@@ -203,6 +254,16 @@ def revoke_approval(ctx: ResolvedProjectContext) -> bool:
     return True
 
 
+def _record_matches_once(record: ApprovalRecord, other: ApprovalRecord) -> bool:
+    return (
+        other.root == record.root
+        and other.profile == record.profile
+        and other.project == record.project
+        and other.service_account == record.service_account
+        and other.config_sha256 == record.config_sha256
+    )
+
+
 def consume_once_approval(record: ApprovalRecord) -> None:
     """Remove a once-mode approval after use."""
     if record.mode != "once":
@@ -210,6 +271,33 @@ def consume_once_approval(record: ApprovalRecord) -> None:
     store = load_store()
     store.approvals = [r for r in store.approvals if not _record_matches_once(record, r)]
     save_store(store)
+
+
+def _git_output(root: Path, args: list[str]) -> str | None:  # noqa: PLR0911
+    git = shutil.which("git")
+    if git is None:
+        return None
+    try:
+        result = subprocess.run(  # noqa: S603
+            [git, *args],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )  # nosec B603
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _git_metadata(root: Path) -> tuple[str | None, str | None]:
+    remote = _git_output(root, ["config", "--get", "remote.origin.url"])
+    branch = _git_output(root, ["rev-parse", "--abbrev-ref", "HEAD"])
+    return remote, branch
 
 
 def prompt_for_approval(  # noqa: C901, PLR0912
@@ -286,91 +374,3 @@ def prompt_for_approval(  # noqa: C901, PLR0912
                 gcloud_trust=gcloud_trust,
             )
         console.print("Invalid choice. Enter A, R, or D.")
-
-
-def _record_matches_once(record: ApprovalRecord, other: ApprovalRecord) -> bool:
-    return (
-        other.root == record.root
-        and other.profile == record.profile
-        and other.project == record.project
-        and other.service_account == record.service_account
-        and other.config_sha256 == record.config_sha256
-    )
-
-
-def _identity_matches(
-    record: ApprovalRecord,
-    ctx: ResolvedProjectContext,
-    root_str: str,
-) -> bool:
-    return (
-        record.root == root_str
-        and record.profile == ctx.profile_name
-        and record.project == ctx.project
-        and record.service_account == ctx.service_account
-        and record.config_sha256 == ctx.config_sha256
-    )
-
-
-def _record_matches(  # noqa: PLR0911, PLR0912
-    record: ApprovalRecord,
-    ctx: ResolvedProjectContext,
-    root_str: str,
-    policy: SecurityPolicy,
-    gcloud_trust: GcloudTrustResult | None,
-) -> bool:
-    if not _identity_matches(record, ctx, root_str):
-        return False
-    if record.schema_version < APPROVAL_SCHEMA_V2 and policy.strict:
-        return False
-    if policy.require_gcloud_path_approval:
-        if gcloud_trust is None:
-            return False
-        if record.gcloud_path != gcloud_trust.path:
-            return False
-        if (
-            record.gcloud_sha256 is not None
-            and gcloud_trust.sha256 is not None
-            and record.gcloud_sha256 != gcloud_trust.sha256
-        ):
-            return False
-    return True
-
-
-def _is_expired(record: ApprovalRecord) -> bool:
-    if record.mode != "remembered" or not record.expires_at:
-        return False
-    try:
-        expires = datetime.fromisoformat(record.expires_at)
-    except ValueError:
-        return True
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=UTC)
-    return datetime.now(tz=UTC) >= expires
-
-
-def _git_metadata(root: Path) -> tuple[str | None, str | None]:
-    remote = _git_output(root, ["config", "--get", "remote.origin.url"])
-    branch = _git_output(root, ["rev-parse", "--abbrev-ref", "HEAD"])
-    return remote, branch
-
-
-def _git_output(root: Path, args: list[str]) -> str | None:  # noqa: PLR0911
-    git = shutil.which("git")
-    if git is None:
-        return None
-    try:
-        result = subprocess.run(  # noqa: S603
-            [git, *args],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-        )  # nosec B603
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    value = result.stdout.strip()
-    return value or None

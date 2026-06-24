@@ -137,6 +137,51 @@ class PolicyFile(BaseModel):
     gcloud: GcloudSection = Field(default_factory=GcloudSection)
 
 
+def _policy_from_file(path: str, parsed: PolicyFile) -> SecurityPolicy:
+    mode = parsed.policy.mode
+    require_adc = parsed.policy.require_initialized_adc_for_hook
+    if require_adc is None:
+        require_adc = mode == "strict"
+    require_gcloud = parsed.policy.require_gcloud_path_approval
+    if require_gcloud is None:
+        require_gcloud = mode == "strict"
+    denied_keys = DEFAULT_DENIED_ENV_KEYS | frozenset(parsed.deny.env.keys)
+    return SecurityPolicy(
+        source=path,
+        mode=mode,
+        approval_ttl_days=parsed.policy.approval_ttl_days,
+        require_initialized_adc_for_hook=require_adc,
+        require_gcloud_path_approval=require_gcloud,
+        allow_projects=tuple(parsed.allow.projects),
+        allow_service_account_domains=tuple(parsed.allow.service_account_domains),
+        allow_quota_projects=tuple(parsed.allow.quota_projects),
+        deny_env_keys=denied_keys,
+        gcloud=GcloudPolicy(
+            allowed_paths=tuple(parsed.gcloud.allowed_paths),
+            deny_if_under_cwd=parsed.gcloud.deny_if_under_cwd,
+            deny_world_writable_parent=parsed.gcloud.deny_world_writable_parent,
+        ),
+    )
+
+
+def _load_policy_file(path: str) -> SecurityPolicy:
+    policy_path = Path(path)
+    reject_symlink(policy_path)
+    try:
+        raw = tomllib.loads(secure_read_text(policy_path))
+    except tomllib.TOMLDecodeError as exc:
+        msg = f"policy {path}: invalid TOML: {exc}"
+        raise PolicyViolationError(msg) from exc
+    try:
+        parsed = PolicyFile.model_validate(raw)
+    except ValidationError as exc:
+        errors = exc.errors()
+        detail = errors[0]["msg"] if errors else "validation failed"
+        msg = f"policy {path}: invalid schema: {detail}"
+        raise PolicyViolationError(msg) from exc
+    return _policy_from_file(path, parsed)
+
+
 def load_policy() -> SecurityPolicy:
     """Load policy from GCPCTX_POLICY_PATH or ~/.config/gcpctx/policy.toml."""
     env_path = os.environ.get("GCPCTX_POLICY_PATH")
@@ -188,48 +233,3 @@ def validate_env_keys_allowed(env_keys: set[str], policy: SecurityPolicy) -> Non
     key = sorted(denied)[0]
     msg = f"env key {key!r} is denied by policy"
     raise PolicyViolationError(msg)
-
-
-def _load_policy_file(path: str) -> SecurityPolicy:
-    policy_path = Path(path)
-    reject_symlink(policy_path)
-    try:
-        raw = tomllib.loads(secure_read_text(policy_path))
-    except tomllib.TOMLDecodeError as exc:
-        msg = f"policy {path}: invalid TOML: {exc}"
-        raise PolicyViolationError(msg) from exc
-    try:
-        parsed = PolicyFile.model_validate(raw)
-    except ValidationError as exc:
-        errors = exc.errors()
-        detail = errors[0]["msg"] if errors else "validation failed"
-        msg = f"policy {path}: invalid schema: {detail}"
-        raise PolicyViolationError(msg) from exc
-    return _policy_from_file(path, parsed)
-
-
-def _policy_from_file(path: str, parsed: PolicyFile) -> SecurityPolicy:
-    mode = parsed.policy.mode
-    require_adc = parsed.policy.require_initialized_adc_for_hook
-    if require_adc is None:
-        require_adc = mode == "strict"
-    require_gcloud = parsed.policy.require_gcloud_path_approval
-    if require_gcloud is None:
-        require_gcloud = mode == "strict"
-    denied_keys = DEFAULT_DENIED_ENV_KEYS | frozenset(parsed.deny.env.keys)
-    return SecurityPolicy(
-        source=path,
-        mode=mode,
-        approval_ttl_days=parsed.policy.approval_ttl_days,
-        require_initialized_adc_for_hook=require_adc,
-        require_gcloud_path_approval=require_gcloud,
-        allow_projects=tuple(parsed.allow.projects),
-        allow_service_account_domains=tuple(parsed.allow.service_account_domains),
-        allow_quota_projects=tuple(parsed.allow.quota_projects),
-        deny_env_keys=denied_keys,
-        gcloud=GcloudPolicy(
-            allowed_paths=tuple(parsed.gcloud.allowed_paths),
-            deny_if_under_cwd=parsed.gcloud.deny_if_under_cwd,
-            deny_world_writable_parent=parsed.gcloud.deny_world_writable_parent,
-        ),
-    )

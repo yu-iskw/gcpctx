@@ -28,6 +28,15 @@ if TYPE_CHECKING:
 _CONTEXT_ID_RE = re.compile(r"^[0-9a-f]{24}$")
 
 
+def _remove_path(path: Path, *, dry_run: bool) -> list[Path]:
+    if not path.exists():
+        return []
+    if dry_run:
+        return [path]
+    secure_remove_tree(path)
+    return [path]
+
+
 def remove_context(context_id: str, *, dry_run: bool = False) -> list[Path]:
     """Delete isolated context directory for *context_id*."""
     if not _CONTEXT_ID_RE.fullmatch(context_id):
@@ -51,12 +60,3 @@ def remove_all_contexts(*, dry_run: bool = False) -> list[Path]:
 def remove_approvals(*, dry_run: bool = False) -> list[Path]:
     """Delete the approvals store file."""
     return _remove_path(paths.approvals_file(), dry_run=dry_run)
-
-
-def _remove_path(path: Path, *, dry_run: bool) -> list[Path]:
-    if not path.exists():
-        return []
-    if dry_run:
-        return [path]
-    secure_remove_tree(path)
-    return [path]

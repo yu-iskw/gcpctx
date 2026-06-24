@@ -34,6 +34,56 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def missing_config_result() -> ActivationResult:
+    """When no .gcpctx.toml: deactivate if active, else emit no-op shell code."""
+    if os.environ.get("GCPCTX_ACTIVE") == "1":
+        return ActivationResult(active=False, readiness="blocked")
+    return ActivationResult(active=False, noop=True, readiness="blocked")
+
+
+def _build_exports(
+    ctx: ResolvedProjectContext,
+    ctx_id: str,
+    config_dir: Path,
+) -> dict[str, str]:
+    exports: dict[str, str] = {
+        "GCPCTX_ACTIVE": "1",
+        "GCPCTX_ROOT": str(ctx.root.resolve()),
+        "GCPCTX_PROFILE": ctx.profile_name,
+        "GCPCTX_PROJECT": ctx.project,
+        "GCPCTX_SERVICE_ACCOUNT": ctx.service_account,
+        "GCPCTX_CONTEXT_ID": ctx_id,
+        "CLOUDSDK_CONFIG": str(config_dir),
+        **profile_env_for_export(ctx.profile.env),
+    }
+    if ctx.profile.region:
+        exports["CLOUDSDK_COMPUTE_REGION"] = ctx.profile.region
+    if ctx.profile.zone:
+        exports["CLOUDSDK_COMPUTE_ZONE"] = ctx.profile.zone
+    # Fail-closed: project identity cannot be overridden by profile.env.
+    exports["CLOUDSDK_CORE_PROJECT"] = ctx.project
+    return exports
+
+
+def _gac_policy(request: ActivationRequest) -> tuple[list[str], list[str]]:
+    if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        return [], []
+    warning = (
+        "GOOGLE_APPLICATION_CREDENTIALS is set and may override ADC; "
+        "it will be unset for this context"
+    )
+    if not request.interactive and not request.allow_google_application_credentials:
+        msg = (
+            "GOOGLE_APPLICATION_CREDENTIALS is set; "
+            "pass --allow-google-application-credentials in non-interactive mode"
+        )
+        raise CredentialConflictError(msg)
+    unsets: list[str] = []
+    if request.hook_mode or request.run_mode or not request.allow_google_application_credentials:
+        unsets.append("GOOGLE_APPLICATION_CREDENTIALS")
+    return [warning], unsets
+
+
 def activate(request: ActivationRequest) -> ActivationResult:
     """Activate gcpctx for the given request."""
     policy = load_policy()
@@ -95,7 +145,7 @@ def activate(request: ActivationRequest) -> ActivationResult:
             profile=ctx.profile_name,
             project=ctx.project,
             service_account=ctx.service_account,
-            warnings=[*warnings, "ADC not initialized; run gcpctx refresh"],
+            warnings=[*warnings, "ADC not initialized; run gcpctx reload"],
         )
 
     consume_once_approval(approval)
@@ -139,53 +189,3 @@ def child_environ(
         env.pop(key, None)
     env.update(result.exports)
     return env
-
-
-def missing_config_result() -> ActivationResult:
-    """When no .gcpctx.toml: deactivate if active, else emit no-op shell code."""
-    if os.environ.get("GCPCTX_ACTIVE") == "1":
-        return ActivationResult(active=False, readiness="blocked")
-    return ActivationResult(active=False, noop=True, readiness="blocked")
-
-
-def _build_exports(
-    ctx: ResolvedProjectContext,
-    ctx_id: str,
-    config_dir: Path,
-) -> dict[str, str]:
-    exports: dict[str, str] = {
-        "GCPCTX_ACTIVE": "1",
-        "GCPCTX_ROOT": str(ctx.root.resolve()),
-        "GCPCTX_PROFILE": ctx.profile_name,
-        "GCPCTX_PROJECT": ctx.project,
-        "GCPCTX_SERVICE_ACCOUNT": ctx.service_account,
-        "GCPCTX_CONTEXT_ID": ctx_id,
-        "CLOUDSDK_CONFIG": str(config_dir),
-        **profile_env_for_export(ctx.profile.env),
-    }
-    if ctx.profile.region:
-        exports["CLOUDSDK_COMPUTE_REGION"] = ctx.profile.region
-    if ctx.profile.zone:
-        exports["CLOUDSDK_COMPUTE_ZONE"] = ctx.profile.zone
-    # Fail-closed: project identity cannot be overridden by profile.env.
-    exports["CLOUDSDK_CORE_PROJECT"] = ctx.project
-    return exports
-
-
-def _gac_policy(request: ActivationRequest) -> tuple[list[str], list[str]]:
-    if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-        return [], []
-    warning = (
-        "GOOGLE_APPLICATION_CREDENTIALS is set and may override ADC; "
-        "it will be unset for this context"
-    )
-    if not request.interactive and not request.allow_google_application_credentials:
-        msg = (
-            "GOOGLE_APPLICATION_CREDENTIALS is set; "
-            "pass --allow-google-application-credentials in non-interactive mode"
-        )
-        raise CredentialConflictError(msg)
-    unsets: list[str] = []
-    if request.hook_mode or request.run_mode or not request.allow_google_application_credentials:
-        unsets.append("GOOGLE_APPLICATION_CREDENTIALS")
-    return [warning], unsets

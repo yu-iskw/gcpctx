@@ -65,107 +65,12 @@ def config_sha256(root: Path) -> str:
     return hash_config_bytes(config_path(root).read_bytes())
 
 
-def load_config_from_bytes(
-    raw: bytes,
-    *,
-    policy: SecurityPolicy | None = None,
-) -> GcpctxConfig:
-    """Load and validate configuration from raw TOML bytes."""
-    parsed = tomllib.loads(raw.decode("utf-8"))
-    active_policy = policy or load_policy()
-    _validate_raw(parsed, active_policy)
-    return GcpctxConfig.model_validate(parsed)
-
-
-def load_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxConfig:
-    """Load and validate configuration from a project root."""
-    return load_config_from_bytes(config_path(root).read_bytes(), policy=policy)
-
-
-def load_project_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxConfig:
-    """Load project config with permission and symlink checks."""
-    return load_project_config_bytes(root, policy=policy)[0]
-
-
-def load_project_config_bytes(
-    root: Path,
-    *,
-    policy: SecurityPolicy | None = None,
-) -> tuple[GcpctxConfig, bytes]:
-    """Load project config and return parsed model plus raw bytes."""
-    check_config_permissions(root)
-    cfg_path = config_path(root)
-    reject_symlink(cfg_path)
-    raw = secure_read_text(cfg_path).encode("utf-8")
-    return load_config_from_bytes(raw, policy=policy), raw
-
-
-def select_profile(config: GcpctxConfig, profile: str | None) -> tuple[str, ProfileConfig]:
-    """Resolve profile name and return (name, ProfileConfig)."""
-    name = profile or config.default_profile
-    if name not in config.profiles:
-        msg = f"Profile {name!r} not found in configuration"
-        raise ConfigValidationError(msg)
-    return name, config.profiles[name]
-
-
-def save_config(root: Path, config: GcpctxConfig) -> None:
-    """Write validated project configuration to .gcpctx.toml."""
-    payload = config.model_dump(mode="json", exclude_none=True)
-    ensure_file(config_path(root), tomli_w.dumps(payload))
-
-
-def resolve_existing_gcloud_binary(gcloud_path: str | Path) -> Path:
-    """Resolve and verify a gcloud binary exists."""
-    resolved = Path(gcloud_path).resolve()
-    if not resolved.is_file():
-        msg = f"gcloud binary not found: {resolved}"
-        raise ConfigValidationError(msg)
-    return resolved
-
-
-def set_project_gcloud_path(root: Path, gcloud_path: str) -> None:
-    """Set gcloud_path in .gcpctx.toml after validating the binary exists."""
-    resolved = resolve_existing_gcloud_binary(gcloud_path)
-    config = load_project_config(root)
-    updated = config.model_copy(update={"gcloud_path": str(resolved)})
-    save_config(root, updated)
-
-
-def unset_project_gcloud_path(root: Path) -> None:
-    """Remove gcloud_path from .gcpctx.toml."""
-    config = load_project_config(root)
-    updated = config.model_copy(update={"gcloud_path": None})
-    save_config(root, updated)
-
-
 def service_account_project(service_account: str) -> str | None:
     """Extract GCP project ID from a service account email."""
     match = re.match(r"^[^@]+@([^.]+)\.iam\.gserviceaccount\.com$", service_account)
     if match is None:
         return None
     return match.group(1)
-
-
-def _validate_raw(raw: dict[str, Any], policy: SecurityPolicy) -> None:
-    if raw.get("version") != 1:
-        msg = "version must be 1"
-        raise ConfigValidationError(msg)
-
-    default_profile = raw.get("default_profile")
-    profiles = raw.get("profiles")
-    if not isinstance(default_profile, str):
-        msg = "default_profile must be a string"
-        raise ConfigValidationError(msg)
-    if not isinstance(profiles, dict) or not profiles:
-        msg = "profiles must be a non-empty table"
-        raise ConfigValidationError(msg)
-    if default_profile not in profiles:
-        msg = f"default_profile {default_profile!r} not in profiles"
-        raise ConfigValidationError(msg)
-
-    _validate_gcloud_path(raw.get("gcloud_path"))
-    _validate_profiles(profiles, policy)
 
 
 def _validate_gcloud_path(value: object) -> None:
@@ -180,24 +85,10 @@ def _validate_gcloud_path(value: object) -> None:
         raise ConfigValidationError(msg)
 
 
-def _validate_profiles(profiles: dict[str, Any], policy: SecurityPolicy) -> None:
-    for name, profile in profiles.items():
-        _validate_profile_name(name)
-        if not isinstance(profile, dict):
-            msg = f"profile {name!r} must be a table"
-            raise ConfigValidationError(msg)
-        _validate_profile_fields(name, profile, policy)
-
-
 def _validate_profile_name(name: str) -> None:
     if not PROFILE_NAME_RE.match(name):
         msg = f"invalid profile name: {name!r}"
         raise ConfigValidationError(msg)
-
-
-def _validate_profile_fields(name: str, profile: dict[str, Any], policy: SecurityPolicy) -> None:
-    _validate_profile_identity(name, profile, policy)
-    _validate_profile_env(name, profile.get("env", {}), policy)
 
 
 def _validate_profile_identity(
@@ -247,6 +138,115 @@ def _validate_profile_env(name: str, env: object, policy: SecurityPolicy) -> Non
             msg = f"profile {name!r}: env key {key!r} is not allowlisted"
             raise ConfigValidationError(msg)
     validate_env_keys_allowed(set(env), policy)
+
+
+def _validate_profile_fields(name: str, profile: dict[str, Any], policy: SecurityPolicy) -> None:
+    _validate_profile_identity(name, profile, policy)
+    _validate_profile_env(name, profile.get("env", {}), policy)
+
+
+def _validate_profiles(profiles: dict[str, Any], policy: SecurityPolicy) -> None:
+    for name, profile in profiles.items():
+        _validate_profile_name(name)
+        if not isinstance(profile, dict):
+            msg = f"profile {name!r} must be a table"
+            raise ConfigValidationError(msg)
+        _validate_profile_fields(name, profile, policy)
+
+
+def _validate_raw(raw: dict[str, Any], policy: SecurityPolicy) -> None:
+    if raw.get("version") != 1:
+        msg = "version must be 1"
+        raise ConfigValidationError(msg)
+
+    default_profile = raw.get("default_profile")
+    profiles = raw.get("profiles")
+    if not isinstance(default_profile, str):
+        msg = "default_profile must be a string"
+        raise ConfigValidationError(msg)
+    if not isinstance(profiles, dict) or not profiles:
+        msg = "profiles must be a non-empty table"
+        raise ConfigValidationError(msg)
+    if default_profile not in profiles:
+        msg = f"default_profile {default_profile!r} not in profiles"
+        raise ConfigValidationError(msg)
+
+    _validate_gcloud_path(raw.get("gcloud_path"))
+    _validate_profiles(profiles, policy)
+
+
+def load_config_from_bytes(
+    raw: bytes,
+    *,
+    policy: SecurityPolicy | None = None,
+) -> GcpctxConfig:
+    """Load and validate configuration from raw TOML bytes."""
+    parsed = tomllib.loads(raw.decode("utf-8"))
+    active_policy = policy or load_policy()
+    _validate_raw(parsed, active_policy)
+    return GcpctxConfig.model_validate(parsed)
+
+
+def load_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxConfig:
+    """Load and validate configuration from a project root."""
+    return load_config_from_bytes(config_path(root).read_bytes(), policy=policy)
+
+
+def load_project_config_bytes(
+    root: Path,
+    *,
+    policy: SecurityPolicy | None = None,
+) -> tuple[GcpctxConfig, bytes]:
+    """Load project config and return parsed model plus raw bytes."""
+    check_config_permissions(root)
+    cfg_path = config_path(root)
+    reject_symlink(cfg_path)
+    raw = secure_read_text(cfg_path).encode("utf-8")
+    return load_config_from_bytes(raw, policy=policy), raw
+
+
+def load_project_config(root: Path, *, policy: SecurityPolicy | None = None) -> GcpctxConfig:
+    """Load project config with permission and symlink checks."""
+    return load_project_config_bytes(root, policy=policy)[0]
+
+
+def select_profile(config: GcpctxConfig, profile: str | None) -> tuple[str, ProfileConfig]:
+    """Resolve profile name and return (name, ProfileConfig)."""
+    name = profile or config.default_profile
+    if name not in config.profiles:
+        msg = f"Profile {name!r} not found in configuration"
+        raise ConfigValidationError(msg)
+    return name, config.profiles[name]
+
+
+def save_config(root: Path, config: GcpctxConfig) -> None:
+    """Write validated project configuration to .gcpctx.toml."""
+    payload = config.model_dump(mode="json", exclude_none=True)
+    ensure_file(config_path(root), tomli_w.dumps(payload))
+
+
+def resolve_existing_gcloud_binary(gcloud_path: str | Path) -> Path:
+    """Resolve and verify a gcloud binary exists."""
+    resolved = Path(gcloud_path).resolve()
+    if not resolved.is_file():
+        msg = f"gcloud binary not found: {resolved}"
+        raise ConfigValidationError(msg)
+    return resolved
+
+
+def set_project_gcloud_path(root: Path, gcloud_path: str) -> None:
+    """Set gcloud_path in .gcpctx.toml after validating the binary exists."""
+    resolved = resolve_existing_gcloud_binary(gcloud_path)
+    config = load_project_config(root)
+    updated = config.model_copy(update={"gcloud_path": str(resolved)})
+    save_config(root, updated)
+
+
+def unset_project_gcloud_path(root: Path) -> None:
+    """Remove gcloud_path from .gcpctx.toml."""
+    config = load_project_config(root)
+    updated = config.model_copy(update={"gcloud_path": None})
+    save_config(root, updated)
 
 
 def validate_init_project_inputs(

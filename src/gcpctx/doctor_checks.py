@@ -35,7 +35,7 @@ DOCTOR_CHECK_REGISTRY: dict[str, DoctorCheckSpec] = {
     "config": DoctorCheckSpec(
         ExitCode.CONFIG_NOT_FOUND,
         "docs/checks/config.md",
-        "gcpctx init-project",
+        "gcpctx create",
     ),
     "profile": DoctorCheckSpec(
         ExitCode.CONFIG_NOT_FOUND,
@@ -53,7 +53,7 @@ DOCTOR_CHECK_REGISTRY: dict[str, DoctorCheckSpec] = {
     "gcloud_trust": DoctorCheckSpec(
         ExitCode.GCLOUD_TRUST_FAILURE,
         "docs/checks/gcloud_trust.md",
-        'gcpctx config set-gcloud-path "$(which gcloud)"',
+        'gcpctx config "$(which gcloud)"',
     ),
     "approval": DoctorCheckSpec(
         ExitCode.APPROVAL_REQUIRED,
@@ -83,17 +83,17 @@ DOCTOR_CHECK_REGISTRY: dict[str, DoctorCheckSpec] = {
     "gcloud_project": DoctorCheckSpec(
         ExitCode.GCLOUD_TRUST_FAILURE,
         "docs/checks/gcloud_project.md",
-        "gcpctx refresh",
+        "gcpctx reload",
     ),
     "impersonation": DoctorCheckSpec(
         ExitCode.GCLOUD_TRUST_FAILURE,
         "docs/checks/impersonation.md",
-        "gcpctx refresh",
+        "gcpctx reload",
     ),
     "adc": DoctorCheckSpec(
         ExitCode.ADC_NOT_INITIALIZED,
         "docs/checks/adc.md",
-        "gcpctx refresh",
+        "gcpctx reload",
     ),
     "gac": DoctorCheckSpec(
         ExitCode.POLICY_VIOLATION,
