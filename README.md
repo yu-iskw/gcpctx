@@ -97,6 +97,10 @@ quota_project = "my-billing-project"
 region = "asia-northeast1"
 ```
 
+## Examples
+
+See [examples/README.md](examples/README.md) for a manual integration demo that verifies `google.auth.default()` under gcpctx and chained service-account impersonation in Python (Terraform-backed IAM in `examples/terraform/`).
+
 ## Shell integration
 
 ```bash

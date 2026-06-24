@@ -396,6 +396,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "bandit" },
+    { name = "google-auth" },
     { name = "google-cloud-bigquery" },
     { name = "pylint" },
     { name = "pyright" },
@@ -419,6 +420,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "bandit", specifier = ">=1.8.3" },
+    { name = "google-auth", specifier = ">=2.55.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.42.1" },
     { name = "pylint", specifier = ">=3.3.5" },
     { name = "pyright", specifier = ">=1.1.0" },
