@@ -7,18 +7,41 @@ import argparse
 import json
 import os
 import sys
-import urllib.error
 import urllib.parse
-import urllib.request
+from typing import TYPE_CHECKING
 
 from google import auth
 from google.api_core import exceptions as api_exceptions
 from google.auth import impersonated_credentials
-from google.auth.credentials import Credentials
 from google.auth.transport.requests import Request
 from google.cloud import bigquery
 
+if TYPE_CHECKING:
+    from google.auth.credentials import Credentials
+
 TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+MAX_DATASETS_TO_PRINT = 10
+HTTP_ERROR_STATUS = 400
+
+
+def _http_response_status(response: object) -> int:
+    status = getattr(response, "status_code", None)
+    if status is None:
+        status = getattr(response, "status", None)
+    if not isinstance(status, int):
+        msg = "HTTP response has no status"
+        raise TypeError(msg)
+    return status
+
+
+def _http_response_body(response: object) -> str:
+    text = getattr(response, "text", None)
+    if isinstance(text, str):
+        return text
+    data = getattr(response, "data", b"")
+    if isinstance(data, bytes):
+        return data.decode("utf-8")
+    return str(data)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -54,23 +77,25 @@ def _email_from_cred_info(credentials: Credentials) -> str | None:
     info = get_cred_info()
     if not isinstance(info, dict):
         return None
+    email = None
     for key in ("service_account_email", "principal", "email"):
         value = info.get(key)
         if isinstance(value, str) and value:
-            return value
-    return None
+            email = value
+            break
+    return email
 
 
-def _email_from_tokeninfo(access_token: str) -> str:
+def _email_from_tokeninfo(access_token: str, request: Request) -> str:
     query = urllib.parse.urlencode({"access_token": access_token})
     url = f"{TOKENINFO_URL}?{query}"
-    try:
-        with urllib.request.urlopen(url, timeout=30) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        msg = f"tokeninfo request failed ({exc.code}): {body}"
-        raise RuntimeError(msg) from exc
+    response = request(url=url, method="GET")
+    status = _http_response_status(response)
+    body = _http_response_body(response)
+    if status >= HTTP_ERROR_STATUS:
+        msg = f"tokeninfo request failed ({status}): {body}"
+        raise RuntimeError(msg)
+    payload = json.loads(body)
     email = payload.get("email")
     if not isinstance(email, str) or not email:
         msg = f"tokeninfo response missing email: {payload!r}"
@@ -93,7 +118,7 @@ def resolve_credential_email(credentials: Credentials, request: Request) -> str:
     if not isinstance(token, str) or not token:
         msg = "credentials have no access token after refresh"
         raise RuntimeError(msg)
-    return _email_from_tokeninfo(token)
+    return _email_from_tokeninfo(token, request)
 
 
 def _assert_email(label: str, actual: str, expected: str) -> None:
@@ -113,10 +138,10 @@ def list_project_datasets(label: str, credentials: Credentials, project: str) ->
         sys.exit(1)
 
     print(f"OK   {label}: listed {len(refs)} dataset(s) in {project!r}")
-    for ref in refs[:10]:
+    for ref in refs[:MAX_DATASETS_TO_PRINT]:
         print(f"     - {ref.dataset_id}")
-    if len(refs) > 10:
-        print(f"     ... and {len(refs) - 10} more")
+    if len(refs) > MAX_DATASETS_TO_PRINT:
+        print(f"     ... and {len(refs) - MAX_DATASETS_TO_PRINT} more")
 
 
 def check_adc_main(main_sa: str, request: Request) -> tuple[Credentials, str]:
