@@ -86,6 +86,51 @@ class InitContext:
     force: bool = False
 
 
+def adc_exists(cloudsdk_config: Path) -> bool:
+    """Return True if ADC credentials file exists for this config."""
+    return (cloudsdk_config / "application_default_credentials.json").is_file()
+
+
+def _read_state_file(state_path: Path) -> ContextState | None:
+    try:
+        return ContextState.model_validate_json(secure_read_text(state_path))
+    except (json.JSONDecodeError, ValueError, OSError):
+        return None
+
+
+def _state_matches_profile(
+    state: ContextState,
+    config_sha256: str,
+    profile: ProfileConfig,
+) -> bool:
+    if state.config_sha256 != config_sha256:
+        return False
+    return state.project == profile.project and state.service_account == profile.service_account
+
+
+def _load_cached_state(
+    state_path: Path,
+    config_sha256: str,
+    profile: ProfileConfig,
+) -> ContextState | None:
+    if not state_path.is_file():
+        return None
+    state = _read_state_file(state_path)
+    if state is None or not _state_matches_profile(state, config_sha256, profile):
+        return None
+    config_dir = state_path.parent / "gcloud"
+    return state if adc_exists(config_dir) else None
+
+
+def _touch_state_checked(state_path: Path, state: ContextState) -> ContextState:
+    checked = datetime.fromisoformat(state.last_checked_at)
+    if datetime.now(tz=UTC) - checked <= timedelta(seconds=DEBOUNCE_SECONDS):
+        return state
+    updated = state.model_copy(update={"last_checked_at": utc_now_iso()})
+    ensure_managed_file(state_path, updated.model_dump_json(indent=2))
+    return updated
+
+
 def ensure_initialized(ctx: InitContext) -> ContextState:
     """Initialize isolated gcloud config and ADC if needed."""
     config_dir = cloudsdk_config_dir(ctx.context_id)
@@ -173,48 +218,3 @@ def read_gcloud_property(
         return None
     value = result.stdout.strip()
     return value if value and value != "(unset)" else None
-
-
-def adc_exists(cloudsdk_config: Path) -> bool:
-    """Return True if ADC credentials file exists for this config."""
-    return (cloudsdk_config / "application_default_credentials.json").is_file()
-
-
-def _load_cached_state(
-    state_path: Path,
-    config_sha256: str,
-    profile: ProfileConfig,
-) -> ContextState | None:
-    if not state_path.is_file():
-        return None
-    state = _read_state_file(state_path)
-    if state is None or not _state_matches_profile(state, config_sha256, profile):
-        return None
-    config_dir = state_path.parent / "gcloud"
-    return state if adc_exists(config_dir) else None
-
-
-def _read_state_file(state_path: Path) -> ContextState | None:
-    try:
-        return ContextState.model_validate_json(secure_read_text(state_path))
-    except (json.JSONDecodeError, ValueError, OSError):
-        return None
-
-
-def _state_matches_profile(
-    state: ContextState,
-    config_sha256: str,
-    profile: ProfileConfig,
-) -> bool:
-    if state.config_sha256 != config_sha256:
-        return False
-    return state.project == profile.project and state.service_account == profile.service_account
-
-
-def _touch_state_checked(state_path: Path, state: ContextState) -> ContextState:
-    checked = datetime.fromisoformat(state.last_checked_at)
-    if datetime.now(tz=UTC) - checked <= timedelta(seconds=DEBOUNCE_SECONDS):
-        return state
-    updated = state.model_copy(update={"last_checked_at": utc_now_iso()})
-    ensure_managed_file(state_path, updated.model_dump_json(indent=2))
-    return updated

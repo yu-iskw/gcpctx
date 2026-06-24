@@ -163,8 +163,8 @@ Some tools load mirrored skills under `.agents/skills/` instead of `.claude/`. O
 ## Learned Workspace Facts
 
 - Run the gcpctx CLI in this repo with `uv run gcpctx` (project venv), not bare `gcpctx` unless globally installed.
-- With `gcloud_path` unset in `.gcpctx.toml`, gcpctx resolves gcloud via `shutil.which("gcloud")`; pin per project with `gcpctx config set-gcloud-path` and clear with `unset-gcloud-path`. gcpctx does not integrate with version managers.
-- Stale project pins fall back to PATH with a warning; `gcpctx config unset-gcloud-path` clears the pin from `.gcpctx.toml`.
+- With `gcloud_path` unset in `.gcpctx.toml`, gcpctx resolves gcloud via `shutil.which("gcloud")`; pin per project with `gcpctx config PATH` and clear with `gcpctx config --unset`. gcpctx does not integrate with version managers.
+- Stale project pins fall back to PATH with a warning; `gcpctx config --unset` clears the pin from `.gcpctx.toml`.
 - Default security policy is permissive: gcloud on PATH works without pinning unless `policy.toml` strict mode or `doctor --strict` is used.
 - `settings.toml` accepts `version` 1 or 2 and ignores unknown keys (including deprecated global `gcloud_path`).
 - Managed gcpctx cache/config dirs auto-repair to `0o700` before permission validation when owned by the user.

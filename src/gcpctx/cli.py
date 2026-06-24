@@ -16,10 +16,9 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -52,6 +51,7 @@ from gcpctx.project_context import ResolvedProjectContext, resolve_project_conte
 from gcpctx.runner import run_command
 from gcpctx.security import ensure_file, is_posix_platform
 from gcpctx.shell import (
+    ShellName,
     render_init_for_shell,
     render_shell,
 )
@@ -78,17 +78,23 @@ def main() -> None:
         raise typer.Exit(code=exc.exit_code) from exc
 
 
-init_app = typer.Typer(help="Install shell integration.")
-hook_app = typer.Typer(help="Shell hook commands.")
-config_app = typer.Typer(help="Project gcloud settings.")
-app.add_typer(init_app, name="init")
-app.add_typer(hook_app, name="hook")
-app.add_typer(config_app, name="config")
-
 ShellOpt = Annotated[
-    Literal["bash", "zsh"],
+    ShellName,
     typer.Option("--shell", help="Target shell (bash or zsh)."),
 ]
+
+
+def _resolve_cwd(cwd: Path | None) -> Path:
+    return (cwd or Path.cwd()).resolve()
+
+
+def _require_project_root(cwd: Path | None = None) -> Path:
+    """Return nearest project root or exit with config error."""
+    root = find_project_root(_resolve_cwd(cwd))
+    if root is None:
+        typer.echo("No .gcpctx.toml found", err=True)
+        raise typer.Exit(code=int(ExitCode.CONFIG_NOT_FOUND))
+    return root
 
 
 def _require_project_context(
@@ -97,7 +103,7 @@ def _require_project_context(
 ) -> ResolvedProjectContext:
     """Resolve project context or exit with config error."""
     try:
-        return resolve_project_context((cwd or Path.cwd()).resolve(), profile)
+        return resolve_project_context(_resolve_cwd(cwd), profile)
     except ConfigNotFoundError:
         typer.echo("No .gcpctx.toml found", err=True)
         raise typer.Exit(code=int(ExitCode.CONFIG_NOT_FOUND)) from None
@@ -114,62 +120,56 @@ def _run_activation(request: ActivationRequest) -> ActivationResult:
     return result
 
 
-def _shell_from_option(shell: str) -> Literal["bash", "zsh"]:
-    if shell not in {"bash", "zsh"}:
-        typer.echo(f"unsupported shell: {shell}", err=True)
-        raise typer.Exit(code=1)
-    if shell == "bash":
-        return "bash"
-    return "zsh"
-
-
-def _handle_error(exc: Exception) -> None:
-    if isinstance(exc, GcpctxError):
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=exc.exit_code) from exc
+def _handle_error(exc: GcpctxError) -> None:
     typer.echo(str(exc), err=True)
-    raise typer.Exit(code=1) from exc
+    raise typer.Exit(code=exc.exit_code) from exc
 
 
-def _emit_shell(result: ActivationResult, shell: Literal["bash", "zsh"]) -> None:
+def _emit_shell(result: ActivationResult, shell: ShellName) -> None:
     code = render_shell(result, shell)
     sys.stdout.write(code)
     if code:
         sys.stdout.write("\n")
 
 
-_INIT_RC: dict[Literal["bash", "zsh"], str] = {
+_INIT_RC: dict[ShellName, str] = {
     "zsh": "~/.zshrc",
     "bash": "~/.bashrc",
 }
 
 
-def _emit_init(shell: Literal["bash", "zsh"]) -> None:
+def _emit_init_instructions(rc_file: str) -> None:
+    log_stderr(
+        f"Add the snippet above to {rc_file} (or redirect stdout: >> {rc_file}). "
+        "Check for an existing '# >>> gcpctx hook >>>' block first to avoid duplicates.\n"
+        "Ensure gcpctx is on PATH (pipx / uv tool install, or alias gcpctx='uvx gcpctx').\n"
+        "Reload your shell: exec $SHELL"
+    )
+
+
+def _emit_init(shell: ShellName) -> None:
     sys.stdout.write(render_init_for_shell(shell))
     _emit_init_instructions(_INIT_RC[shell])
 
 
-@app.command()
-def profiles(
+@app.command("list")
+def list_profiles(
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
 ) -> None:
     """List profiles in the nearest .gcpctx.toml."""
-    work = (cwd or Path.cwd()).resolve()
-    root = find_project_root(work)
-    if root is None:
-        typer.echo("No .gcpctx.toml found", err=True)
-        raise typer.Exit(code=2)
-    config = load_project_config(root, policy=load_policy())
+    root = _require_project_root(cwd)
+    project_config = load_project_config(root, policy=load_policy())
     typer.echo(f"Profiles in {config_path(root)}\n")
-    for name, prof in config.profiles.items():
-        marker = "*" if name == config.default_profile else " "
+    for name, prof in project_config.profiles.items():
+        marker = "*" if name == project_config.default_profile else " "
         typer.echo(f"{marker} {name:<15} {prof.project:<20} {prof.service_account}")
 
 
 @app.command()
-def activate(
+def activate(  # noqa: PLR0913
+    profile_arg: Annotated[str | None, typer.Argument(help="Profile name.")] = None,
     shell: ShellOpt = "zsh",
-    profile: Annotated[str | None, typer.Option(help="Profile name.")] = None,
+    profile: Annotated[str | None, typer.Option("--profile", help="Profile name.")] = None,
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
     allow_google_application_credentials: Annotated[
         bool,
@@ -178,13 +178,13 @@ def activate(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Emit shell code to activate gcpctx in the current shell."""
-    shell_name = _shell_from_option(shell)
+    profile_name = profile_arg or profile
     try:
         result = _run_activation(
             ActivationRequest(
-                cwd=(cwd or Path.cwd()).resolve(),
-                shell_name=shell_name,
-                profile=profile,
+                cwd=_resolve_cwd(cwd),
+                shell_name=shell,
+                profile=profile_name,
                 interactive=sys.stdin.isatty(),
                 allow_google_application_credentials=allow_google_application_credentials,
             )
@@ -192,7 +192,7 @@ def activate(
         if json_output:
             typer.echo(result.model_dump_json())
             return
-        _emit_shell(result, shell_name)
+        _emit_shell(result, shell)
     except GcpctxError as exc:
         _handle_error(exc)
 
@@ -203,22 +203,20 @@ def deactivate(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Emit shell code to deactivate gcpctx."""
-    shell_name = _shell_from_option(shell)
     result = activation.deactivate()
     if json_output:
         typer.echo(result.model_dump_json())
         return
-    _emit_shell(result, shell_name)
+    _emit_shell(result, shell)
 
 
-@hook_app.command("eval")
-def hook_eval(
-    shell: Annotated[str, typer.Argument(help="bash or zsh")],
+@app.command()
+def hook(
+    shell: ShellOpt,
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
 ) -> None:
     """Evaluate hook for directory changes (shell code on stdout only)."""
-    shell_name = _shell_from_option(shell)
-    work = (cwd or Path.cwd()).resolve()
+    work = _resolve_cwd(cwd)
     try:
         if find_project_root(work) is None:
             result = activation.missing_config_result()
@@ -226,15 +224,15 @@ def hook_eval(
             result = _run_activation(
                 ActivationRequest(
                     cwd=work,
-                    shell_name=shell_name,
+                    shell_name=shell,
                     hook_mode=True,
                     skip_gcloud_init=True,
                     interactive=sys.stdin.isatty(),
                 )
             )
-        _emit_shell(result, shell_name)
+        _emit_shell(result, shell)
     except GcpctxError as exc:
-        _emit_shell(activation.deactivate(), shell_name)
+        _emit_shell(activation.deactivate(), shell)
         _handle_error(exc)
 
 
@@ -244,7 +242,7 @@ def status(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Show active gcpctx context."""
-    info = status_info((cwd or Path.cwd()).resolve())
+    info = status_info(_resolve_cwd(cwd))
     if json_output:
         typer.echo(json.dumps(info, indent=2))
         return
@@ -276,7 +274,7 @@ def doctor(
 ) -> None:
     """Run diagnostic checks."""
     result = run_doctor(
-        (cwd or Path.cwd()).resolve(),
+        _resolve_cwd(cwd),
         profile=profile,
         strict=strict,
     )
@@ -328,7 +326,7 @@ def revoke(
 
 
 @app.command()
-def refresh(
+def reload(
     profile: Annotated[str | None, typer.Option(help="Profile name.")] = None,
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
 ) -> None:
@@ -336,14 +334,14 @@ def refresh(
     try:
         _run_activation(
             ActivationRequest(
-                cwd=(cwd or Path.cwd()).resolve(),
+                cwd=_resolve_cwd(cwd),
                 shell_name="zsh",
                 profile=profile,
                 interactive=False,
                 force_refresh=True,
             )
         )
-        typer.echo("Context refreshed")
+        typer.echo("Context reloaded")
     except GcpctxError as exc:
         _handle_error(exc)
 
@@ -354,17 +352,12 @@ def reset(
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
 ) -> None:
     """Delete isolated context and reinitialize."""
-    root = find_project_root((cwd or Path.cwd()).resolve())
-    if root is None:
-        typer.echo("No .gcpctx.toml found", err=True)
-        raise typer.Exit(code=2)
-    ctx_id = os.environ.get("GCPCTX_CONTEXT_ID")
-    if ctx_id:
-        cleanup.remove_context(ctx_id)
     try:
+        ctx = _require_project_context(cwd, profile)
+        cleanup.remove_context(ctx.context_id())
         result = _run_activation(
             ActivationRequest(
-                cwd=root,
+                cwd=ctx.root,
                 shell_name="zsh",
                 profile=profile,
                 interactive=False,
@@ -377,7 +370,7 @@ def reset(
 
 
 @app.command()
-def clean(  # noqa: PLR0912, PLR0913
+def clean(  # noqa: PLR0912
     profile: Annotated[str | None, typer.Option(help="Profile name.")] = None,
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
     all_contexts: Annotated[
@@ -392,19 +385,9 @@ def clean(  # noqa: PLR0912, PLR0913
         bool,
         typer.Option("--dry-run", help="Print paths that would be removed."),
     ] = False,
-    reinit: Annotated[
-        bool,
-        typer.Option("--reinit", help="Re-initialize after project-scoped clean."),
-    ] = False,
 ) -> None:
     """Remove isolated gcloud cache and/or approvals (never touches global gcloud config)."""
     try:
-        if reinit and (all_contexts or approvals):
-            msg = "--reinit requires project-scoped clean (omit --all-contexts and --approvals)"
-            typer.echo(msg, err=True)
-            raise typer.Exit(code=2)
-        context_id: str | None = None
-        work = (cwd or Path.cwd()).resolve()
         removed: list[Path] = []
         if all_contexts:
             removed.extend(cleanup.remove_all_contexts(dry_run=dry_run))
@@ -412,46 +395,13 @@ def clean(  # noqa: PLR0912, PLR0913
             removed.extend(cleanup.remove_approvals(dry_run=dry_run))
         if not all_contexts and not approvals:
             ctx = _require_project_context(cwd, profile)
-            context_id = ctx.context_id()
-            removed.extend(cleanup.remove_context(context_id, dry_run=dry_run))
+            removed.extend(cleanup.remove_context(ctx.context_id(), dry_run=dry_run))
         if not removed:
             typer.echo("nothing to clean")
         else:
             prefix = "would remove" if dry_run else "removed"
             for path in removed:
                 typer.echo(f"{prefix} {path}")
-        if reinit and context_id is not None and not dry_run:
-            _run_activation(
-                ActivationRequest(
-                    cwd=work,
-                    shell_name="zsh",
-                    profile=profile,
-                    interactive=False,
-                    force_refresh=True,
-                )
-            )
-    except GcpctxError as exc:
-        _handle_error(exc)
-
-
-@app.command("use")
-def use_profile(
-    profile_name: Annotated[str, typer.Argument(help="Profile to activate.")],
-    shell: ShellOpt = "zsh",
-    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
-) -> None:
-    """Emit shell code to switch profile (source in parent shell)."""
-    shell_name = _shell_from_option(shell)
-    try:
-        result = _run_activation(
-            ActivationRequest(
-                cwd=(cwd or Path.cwd()).resolve(),
-                shell_name=shell_name,
-                profile=profile_name,
-                interactive=sys.stdin.isatty(),
-            )
-        )
-        _emit_shell(result, shell_name)
     except GcpctxError as exc:
         _handle_error(exc)
 
@@ -483,7 +433,7 @@ def run(
     try:
         result = _run_activation(
             ActivationRequest(
-                cwd=(cwd or Path.cwd()).resolve(),
+                cwd=_resolve_cwd(cwd),
                 shell_name="zsh",
                 profile=profile,
                 interactive=sys.stdin.isatty(),
@@ -501,8 +451,8 @@ def run(
         _handle_error(exc)
 
 
-@app.command("init-project")
-def init_project(
+@app.command()
+def create(
     project: Annotated[str | None, typer.Option(help="GCP project ID.")] = None,
     service_account: Annotated[
         str | None,
@@ -516,7 +466,7 @@ def init_project(
     cwd: Annotated[Path | None, typer.Option(help="Target directory.")] = None,
 ) -> None:
     """Write a minimal .gcpctx.toml in the current directory."""
-    target = (cwd or Path.cwd()).resolve()
+    target = _resolve_cwd(cwd)
     dest = target / ".gcpctx.toml"
     if dest.exists():
         typer.echo(f"{dest} already exists", err=True)
@@ -526,84 +476,65 @@ def init_project(
     try:
         validate_init_project_inputs(project=proj, service_account=sa, profile=profile)
     except ConfigValidationError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=2) from exc
-    resolved_gcloud: str | None = None
-    if gcloud_path is not None:
-        resolved_gcloud = str(resolve_existing_gcloud_binary(gcloud_path))
+        _handle_error(exc)
     content = render_init_project_toml(
         project=proj,
         service_account=sa,
         profile=profile,
-        gcloud_path=resolved_gcloud,
+        gcloud_path=(
+            str(resolve_existing_gcloud_binary(gcloud_path)) if gcloud_path is not None else None
+        ),
     )
     ensure_file(dest, content)
     typer.echo(f"Wrote {dest}")
 
 
-@config_app.command("show")
-def config_show(
+@app.command()
+def config(  # noqa: PLR0912
+    path: Annotated[
+        Path | None,
+        typer.Argument(help="Absolute path to gcloud binary (e.g. $(which gcloud))."),
+    ] = None,
+    unset: Annotated[
+        bool,
+        typer.Option("--unset", help="Clear pinned gcloud path and use PATH resolution."),
+    ] = False,
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
 ) -> None:
-    """Show gcloud_path from the project .gcpctx.toml."""
-    root = find_project_root((cwd or Path.cwd()).resolve())
-    if root is None:
-        typer.echo("No .gcpctx.toml found", err=True)
+    """Show or set gcloud_path in the project .gcpctx.toml."""
+    if path is not None and unset:
+        typer.echo("cannot set path and --unset together", err=True)
         raise typer.Exit(code=2)
-    config = load_project_config(root)
-    if config.gcloud_path:
-        typer.echo(f"gcloud_path = {config.gcloud_path}")
+    if path is not None and path.name == "show" and not path.exists():
+        typer.echo("gcpctx config show was removed; run gcpctx config", err=True)
+        raise typer.Exit(code=2)
+    if unset:
+        ctx = _require_project_context(cwd)
+        unset_project_gcloud_path(ctx.root)
+        typer.echo("Cleared gcloud_path (using PATH)")
+        return
+    if path is not None:
+        ctx = _require_project_context(cwd)
+        try:
+            set_project_gcloud_path(ctx.root, str(path.resolve()))
+        except ConfigValidationError as exc:
+            _handle_error(exc)
+        typer.echo(f"Set gcloud_path to {path.resolve()} in {config_path(ctx.root)}")
+        return
+    root = _require_project_root(cwd)
+    project_config = load_project_config(root)
+    if project_config.gcloud_path:
+        typer.echo(f"gcloud_path = {project_config.gcloud_path}")
     else:
         typer.echo("gcloud_path = (unset, using PATH)")
 
 
-@config_app.command("set-gcloud-path")
-def config_set_gcloud_path(
-    path: Annotated[
-        Path,
-        typer.Argument(help="Absolute path to gcloud binary (e.g. $(which gcloud))."),
-    ],
-    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
+@app.command()
+def install(
+    shell: ShellOpt,
 ) -> None:
-    """Pin the trusted gcloud binary path in .gcpctx.toml."""
-    ctx = _require_project_context(cwd)
-    try:
-        set_project_gcloud_path(ctx.root, str(path.resolve()))
-    except ConfigValidationError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=2) from exc
-    typer.echo(f"Set gcloud_path to {path.resolve()} in {config_path(ctx.root)}")
-
-
-@config_app.command("unset-gcloud-path")
-def config_unset_gcloud_path(
-    cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
-) -> None:
-    """Clear pinned gcloud path from .gcpctx.toml and use PATH resolution."""
-    ctx = _require_project_context(cwd)
-    unset_project_gcloud_path(ctx.root)
-    typer.echo("Cleared gcloud_path (using PATH)")
-
-
-@init_app.command("zsh")
-def init_zsh() -> None:
-    """Print zsh hook snippet to stdout."""
-    _emit_init("zsh")
-
-
-@init_app.command("bash")
-def init_bash() -> None:
-    """Print bash hook snippet to stdout."""
-    _emit_init("bash")
-
-
-def _emit_init_instructions(rc_file: str) -> None:
-    log_stderr(
-        f"Add the snippet above to {rc_file} (or redirect stdout: >> {rc_file}). "
-        "Check for an existing '# >>> gcpctx hook >>>' block first to avoid duplicates.\n"
-        "Ensure gcpctx is on PATH (pipx / uv tool install, or alias gcpctx='uvx gcpctx').\n"
-        "Reload your shell: exec $SHELL"
-    )
+    """Print shell hook snippet to stdout."""
+    _emit_init(shell)
 
 
 if __name__ == "__main__":

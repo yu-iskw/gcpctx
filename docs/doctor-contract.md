@@ -6,7 +6,7 @@
 
 | Field        | Type                     | Description                                    |
 | ------------ | ------------------------ | ---------------------------------------------- |
-| `version`    | string                   | Package version (e.g. `0.4.0`)                 |
+| `version`    | string                   | Package version (e.g. `0.5.0`)                 |
 | `status`     | `ok` \| `warn` \| `fail` | Aggregate outcome                              |
 | `profile`    | string \| null           | Active profile when config resolves            |
 | `context_id` | string \| null           | Stable context identifier when config resolves |
@@ -76,7 +76,7 @@ With `--strict` or `policy.mode = "strict"`:
 
 ```json
 {
-  "version": "0.4.0",
+  "version": "0.5.0",
   "status": "fail",
   "profile": "dev",
   "context_id": "sha256:abc123…",
@@ -92,7 +92,7 @@ With `--strict` or `policy.mode = "strict"`:
         "reason": "trust_validation_failed"
       },
       "remediation": {
-        "command": "gcpctx config set-gcloud-path \"$(which gcloud)\"",
+        "command": "gcpctx config \"$(which gcloud)\"",
         "docs": "docs/checks/gcloud_trust.md"
       }
     }

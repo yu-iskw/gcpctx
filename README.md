@@ -29,7 +29,7 @@ Choose one of these options:
 uvx gcpctx --help
 
 # Pin a version
-uvx gcpctx@0.4.0 status
+uvx gcpctx@0.5.0 status
 
 # Run from a local checkout (before publish)
 uvx --from /path/to/gcpctx gcpctx --help
@@ -39,7 +39,7 @@ Typical workflow with `uvx`:
 
 ```bash
 cd my-repo
-uvx gcpctx init-project \
+uvx gcpctx create \
   --project my-dev-project \
   --service-account agent-dev@my-dev-project.iam.gserviceaccount.com
 
@@ -50,7 +50,7 @@ uvx gcpctx status
 uvx gcpctx doctor
 ```
 
-Shell hooks from `gcpctx init zsh` call `gcpctx` on your `PATH`. After choosing `uvx`, either add a shell alias (`alias gcpctx='uvx gcpctx'`) or install with `pipx` / `uv tool install` for hook integration.
+Shell hooks from `gcpctx install --shell zsh` call `gcpctx` on your `PATH`. After choosing `uvx`, either add a shell alias (`alias gcpctx='uvx gcpctx'`) or install with `pipx` / `uv tool install` for hook integration.
 
 ### pipx
 
@@ -72,7 +72,7 @@ uv run gcpctx --help
 
 ```bash
 # 1. Create project config
-gcpctx init-project --project my-dev-project \
+gcpctx create --project my-dev-project \
   --service-account agent-dev@my-dev-project.iam.gserviceaccount.com
 
 # 2. Approve and activate (zsh example)
@@ -105,14 +105,14 @@ See [examples/README.md](examples/README.md) for a manual integration demo that 
 
 ```bash
 # Print snippet (review first)
-gcpctx init zsh   # or: gcpctx init bash
+gcpctx install --shell zsh   # or: gcpctx install --shell bash
 
 # Or append to your shell rc (check for existing '# >>> gcpctx hook >>>' first)
-gcpctx init zsh >> ~/.zshrc
+gcpctx install --shell zsh >> ~/.zshrc
 exec $SHELL       # reload shell
 ```
 
-The hook runs `gcpctx hook eval` on every directory change. **`init` and `hook eval` write shell code to stdout only**; setup instructions go to stderr.
+The hook runs `gcpctx hook --shell zsh` on every directory change. **`install` and `hook` write shell code to stdout only**; setup instructions go to stderr.
 
 Manual activation without hooks:
 
@@ -121,10 +121,10 @@ eval "$(gcpctx activate --shell zsh)"
 eval "$(gcpctx deactivate --shell zsh)"  # restore prior env
 ```
 
-Switch profile (after adding the `gcpctx-use` wrapper from `gcpctx init`):
+Switch profile (after adding the `gcpctx-switch` wrapper from `gcpctx install`):
 
 ```bash
-gcpctx-use prod-readonly
+gcpctx-switch prod-readonly
 ```
 
 ## IDE usage (VS Code, Cursor, JetBrains)
@@ -133,7 +133,7 @@ Integrated terminals **inherit the parent shell environment**. Subprocesses star
 
 ### Recommended setup
 
-1. Add the shell hook to your rc file (`gcpctx init zsh`, then append or paste into `~/.zshrc`), or manually `eval "$(gcpctx activate --shell zsh)"` in your login shell.
+1. Add the shell hook to your rc file (`gcpctx install --shell zsh`, then append or paste into `~/.zshrc`), or manually `eval "$(gcpctx activate --shell zsh)"` in your login shell.
 2. Open the IDE **from that shell** (`cursor .`, `code .`) so new integrated terminals start activated.
 3. Confirm with `gcpctx status` in an integrated terminal.
 
@@ -173,7 +173,7 @@ gcpctx run --profile dev -- gcloud storage ls
 
 ### Shell activation (whole session)
 
-1. Add `.gcpctx.toml` to the repo (`gcpctx init-project`).
+1. Add `.gcpctx.toml` to the repo (`gcpctx create`).
 2. **Approve once** interactively, or pre-approve for automation:
 
    ```bash
@@ -247,12 +247,30 @@ See [SECURITY.md](SECURITY.md) and [Architecture decision records](docs/adr/) (A
 
 Doctor `--json` shape changed: checks use `id`, `status` (`pass`/`warn`/`fail`), `severity`, `evidence`, and structured `remediation`. Top-level fields include `version`, `status`, `profile`, and `context_id`. See [Doctor JSON contract](docs/doctor-contract.md).
 
+### CLI command renames
+
+Commands were flattened and renamed (no backward-compatible aliases). Update shell rc files and scripts:
+
+| Old                                                     | New                                                                                  |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `init-project`                                          | `create`                                                                             |
+| `init zsh` / `init bash`                                | `install --shell zsh` / `install --shell bash`                                       |
+| `hook eval`                                             | `hook --shell zsh` / `hook --shell bash`                                             |
+| `profiles`                                              | `list`                                                                               |
+| `use PROFILE` / `activate --profile NAME`               | `activate PROFILE` or `activate --profile NAME`                                      |
+| `refresh`                                               | `reload`                                                                             |
+| `clean --reinit`                                        | `reset`                                                                              |
+| `config show` / `set-gcloud-path` / `unset-gcloud-path` | `config` / `config PATH` / `config --unset` (passing `show` prints a migration hint) |
+| `gcpctx-use` shell wrapper                              | `gcpctx-switch`                                                                      |
+
+Re-run `gcpctx install --shell zsh >> ~/.zshrc` (or replace the `# >>> gcpctx hook >>>` block) after upgrading.
+
 ### Upgrading from v0.1
 
 - Remove any `[profiles.*.env] CLOUDSDK_CORE_PROJECT` entries — use `profile.project` instead.
 - Service account emails must use the same GCP project as `profile.project` (e.g. `agent@my-dev-project.iam.gserviceaccount.com` for `project = "my-dev-project"`). Cross-project impersonation is not supported in v0.2.
 - Re-run `gcpctx approve` after upgrade (approval schema v2 adds gcloud binding and expiry).
-- Pin gcloud per project if needed: add `gcloud_path` to `.gcpctx.toml` or run `gcpctx config set-gcloud-path "$(which gcloud)"` in the repo (optional; pinning overrides PATH — run `gcpctx config unset-gcloud-path` if you move or upgrade gcloud)
+- Pin gcloud per project if needed: add `gcloud_path` to `.gcpctx.toml` or run `gcpctx config "$(which gcloud)"` in the repo (optional; pinning overrides PATH — run `gcpctx config --unset` if you move or upgrade gcloud)
 
 ### Policy file (optional)
 
@@ -280,16 +298,16 @@ Non-zero exit when isolation, approval, ADC, IAM impersonation, or filesystem po
 
 ## Troubleshooting
 
-| Symptom                         | Fix                                                                                |
-| ------------------------------- | ---------------------------------------------------------------------------------- |
-| `approval required` in CI/agent | Run `gcpctx approve` once, or activate interactively                               |
-| Wrong project                   | `gcpctx status`; check `.gcpctx.toml`                                              |
-| Stale credentials               | `gcpctx refresh`, `gcpctx reset`, or `gcpctx clean` (then `gcpctx clean --reinit`) |
-| Corrupt isolated ADC / clutter  | `gcpctx clean` (project); `gcpctx clean --all-contexts` (all cache)                |
-| Reset remembered approvals      | `gcpctx clean --approvals` or `gcpctx revoke`                                      |
-| `gcloud` not found              | Install [Google Cloud SDK](https://cloud.google.com/sdk)                           |
-| ADC issues                      | `gcpctx doctor`                                                                    |
-| IDE terminal not activated      | Activate in parent shell before launching IDE, or use shell hooks                  |
+| Symptom                         | Fix                                                                 |
+| ------------------------------- | ------------------------------------------------------------------- |
+| `approval required` in CI/agent | Run `gcpctx approve` once, or activate interactively                |
+| Wrong project                   | `gcpctx status`; check `.gcpctx.toml`                               |
+| Stale credentials               | `gcpctx reload`; if that fails, `gcpctx reset`                      |
+| Corrupt isolated ADC / clutter  | `gcpctx clean` (project); `gcpctx clean --all-contexts` (all cache) |
+| Reset remembered approvals      | `gcpctx clean --approvals` or `gcpctx revoke`                       |
+| `gcloud` not found              | Install [Google Cloud SDK](https://cloud.google.com/sdk)            |
+| ADC issues                      | `gcpctx doctor`                                                     |
+| IDE terminal not activated      | Activate in parent shell before launching IDE, or use shell hooks   |
 
 ## Contributing
 

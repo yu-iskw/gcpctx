@@ -38,6 +38,13 @@ def _managed_roots() -> tuple[Path, Path]:
     return paths.user_config_path().resolve(), paths.user_cache_path().resolve()
 
 
+def _path_is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        return path.is_relative_to(root)
+    except AttributeError:
+        return str(path).startswith(f"{root}{os.sep}")
+
+
 def _is_managed_state_path(path: Path) -> bool:
     try:
         resolved = path.resolve()
@@ -49,13 +56,6 @@ def _is_managed_state_path(path: Path) -> bool:
         or _path_is_relative_to(resolved, config_root)
         or _path_is_relative_to(resolved, cache_root)
     )
-
-
-def _path_is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        return path.is_relative_to(root)
-    except AttributeError:
-        return str(path).startswith(f"{root}{os.sep}")
 
 
 def reject_symlink(path: Path) -> None:
@@ -84,25 +84,6 @@ def _verify_written_file(path: Path) -> None:
         raise UnsafePermissionError(msg)
 
 
-def ensure_dir(path: Path) -> None:
-    """Create directory with restrictive permissions."""
-    reject_symlink(path)
-    if path.exists():
-        if _is_managed_state_path(path):
-            _chmod_managed_ancestors(path)
-            check_path_permissions(path, expect_dir=True)
-        return
-    path.mkdir(parents=True, exist_ok=True)
-    if not _chmod_supported():
-        return
-    _chmod_managed_ancestors(path)
-    if _is_managed_state_path(path):
-        mode = path.stat().st_mode & 0o777
-        if mode != DIR_MODE:
-            msg = f"unsafe directory permissions on {path}: {oct(mode)}"
-            raise UnsafePermissionError(msg)
-
-
 def _chmod_managed_ancestors(path: Path) -> None:  # noqa: PLR0912
     config_root, cache_root = _managed_roots()
     current = path.resolve()
@@ -122,6 +103,52 @@ def _chmod_managed_ancestors(path: Path) -> None:  # noqa: PLR0912
         mode = directory.stat().st_mode & 0o777
         if mode != DIR_MODE:
             msg = f"unsafe directory permissions on {directory}: {oct(mode)}"
+            raise UnsafePermissionError(msg)
+
+
+def is_posix_platform() -> bool:
+    """Return True when platform supports gcpctx security guarantees."""
+    return sys.platform != "win32"
+
+
+def _chmod_supported() -> bool:
+    return is_posix_platform()
+
+
+def check_path_permissions(path: Path, *, expect_dir: bool) -> None:
+    """Validate existing path permissions."""
+    if not path.exists():
+        return
+    if not _chmod_supported():
+        return
+    reject_symlink(path)
+    mode = path.stat().st_mode
+    if expect_dir and not stat.S_ISDIR(mode):
+        msg = f"expected directory at {path}"
+        raise UnsafePermissionError(msg)
+    perm = mode & 0o777
+    expected = DIR_MODE if expect_dir else FILE_MODE
+    if perm != expected:
+        msg = f"unsafe permissions on {path}: {oct(perm)}, expected {oct(expected)}"
+        raise UnsafePermissionError(msg)
+
+
+def ensure_dir(path: Path) -> None:
+    """Create directory with restrictive permissions."""
+    reject_symlink(path)
+    if path.exists():
+        if _is_managed_state_path(path):
+            _chmod_managed_ancestors(path)
+            check_path_permissions(path, expect_dir=True)
+        return
+    path.mkdir(parents=True, exist_ok=True)
+    if not _chmod_supported():
+        return
+    _chmod_managed_ancestors(path)
+    if _is_managed_state_path(path):
+        mode = path.stat().st_mode & 0o777
+        if mode != DIR_MODE:
+            msg = f"unsafe directory permissions on {path}: {oct(mode)}"
             raise UnsafePermissionError(msg)
 
 
@@ -236,24 +263,6 @@ def file_lock(path: Path) -> Iterator[None]:
         raise UnsafePermissionError(msg) from exc
 
 
-def check_path_permissions(path: Path, *, expect_dir: bool) -> None:
-    """Validate existing path permissions."""
-    if not path.exists():
-        return
-    if not _chmod_supported():
-        return
-    reject_symlink(path)
-    mode = path.stat().st_mode
-    if expect_dir and not stat.S_ISDIR(mode):
-        msg = f"expected directory at {path}"
-        raise UnsafePermissionError(msg)
-    perm = mode & 0o777
-    expected = DIR_MODE if expect_dir else FILE_MODE
-    if perm != expected:
-        msg = f"unsafe permissions on {path}: {oct(perm)}, expected {oct(expected)}"
-        raise UnsafePermissionError(msg)
-
-
 def check_config_permissions(root: Path) -> None:
     """Validate .gcpctx.toml permissions when group/other bits are set."""
     config = root / ".gcpctx.toml"
@@ -279,12 +288,3 @@ def secure_remove_tree(path: Path) -> None:
         shutil.rmtree(path)
     else:
         path.unlink()
-
-
-def is_posix_platform() -> bool:
-    """Return True when platform supports gcpctx security guarantees."""
-    return sys.platform != "win32"
-
-
-def _chmod_supported() -> bool:
-    return is_posix_platform()
