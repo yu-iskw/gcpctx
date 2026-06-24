@@ -52,10 +52,8 @@ from gcpctx.project_context import ResolvedProjectContext, resolve_project_conte
 from gcpctx.runner import run_command
 from gcpctx.security import ensure_file, is_posix_platform
 from gcpctx.shell import (
-    bash_hook_snippet,
+    render_init_for_shell,
     render_shell,
-    shell_use_wrapper,
-    zsh_hook_snippet,
 )
 
 app = typer.Typer(
@@ -138,6 +136,17 @@ def _emit_shell(result: ActivationResult, shell: Literal["bash", "zsh"]) -> None
     sys.stdout.write(code)
     if code:
         sys.stdout.write("\n")
+
+
+_INIT_RC: dict[Literal["bash", "zsh"], str] = {
+    "zsh": "~/.zshrc",
+    "bash": "~/.bashrc",
+}
+
+
+def _emit_init(shell: Literal["bash", "zsh"]) -> None:
+    sys.stdout.write(render_init_for_shell(shell))
+    _emit_init_instructions(_INIT_RC[shell])
 
 
 @app.command()
@@ -578,24 +587,23 @@ def config_unset_gcloud_path(
 
 @init_app.command("zsh")
 def init_zsh() -> None:
-    """Install gcpctx hook in ~/.zshrc."""
-    _install_hook(Path.home() / ".zshrc", zsh_hook_snippet(), shell_use_wrapper())
+    """Print zsh hook snippet to stdout."""
+    _emit_init("zsh")
 
 
 @init_app.command("bash")
 def init_bash() -> None:
-    """Install gcpctx hook in ~/.bashrc."""
-    _install_hook(Path.home() / ".bashrc", bash_hook_snippet(), shell_use_wrapper())
+    """Print bash hook snippet to stdout."""
+    _emit_init("bash")
 
 
-def _install_hook(rc_path: Path, hook: str, wrapper: str) -> None:
-    marker = "# >>> gcpctx hook >>>"
-    if rc_path.is_file() and marker in rc_path.read_text(encoding="utf-8"):
-        typer.echo(f"gcpctx hook already installed in {rc_path}")
-        return
-    with rc_path.open("a", encoding="utf-8") as fh:
-        fh.write(f"\n{hook}\n{wrapper}\n")
-    typer.echo(f"Installed gcpctx hook in {rc_path}")
+def _emit_init_instructions(rc_file: str) -> None:
+    log_stderr(
+        f"Add the snippet above to {rc_file} (or redirect stdout: >> {rc_file}). "
+        "Check for an existing '# >>> gcpctx hook >>>' block first to avoid duplicates.\n"
+        "Ensure gcpctx is on PATH (pipx / uv tool install, or alias gcpctx='uvx gcpctx').\n"
+        "Reload your shell: exec $SHELL"
+    )
 
 
 if __name__ == "__main__":

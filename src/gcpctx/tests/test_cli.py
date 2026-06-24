@@ -119,3 +119,17 @@ def test_clean_reinit_rejected_with_all_contexts() -> None:
     result = runner.invoke(app, ["clean", "--all-contexts", "--reinit"])
     assert result.exit_code == 2
     assert "--reinit requires project-scoped clean" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("shell", "rc_file"),
+    [("zsh", "~/.zshrc"), ("bash", "~/.bashrc")],
+)
+def test_init_prints_snippet_and_instructions(shell: str, rc_file: str) -> None:
+    result = runner.invoke(app, ["init", shell])
+    assert result.exit_code == 0
+    assert "# >>> gcpctx hook >>>" in result.stdout
+    assert "gcpctx-use" in result.stdout
+    assert "Installed" not in result.stdout
+    assert rc_file in result.stderr
+    assert "exec $SHELL" in result.stderr
