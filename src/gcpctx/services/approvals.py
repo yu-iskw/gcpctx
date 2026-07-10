@@ -21,8 +21,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
-from gcpctx.adapters.state import FilesystemStateStore
-from gcpctx.adapters.system import RichPrompter
 from gcpctx.core.approval_rules import (
     APPROVAL_SCHEMA_V2,
     ApprovalRecordInput,
@@ -58,6 +56,7 @@ __all__ = [
     "ApprovalMode",
     "add_approval",
     "approval_evidence_id",
+    "configure_state_store",
     "consume_once_approval",
     "find_matching_approval",
     "load_store",
@@ -67,14 +66,26 @@ __all__ = [
     "save_store",
 ]
 
+_configured_state_store: StateStore | None = None
 
-def _default_state_store() -> StateStore:
-    return FilesystemStateStore()
+
+def configure_state_store(store: StateStore) -> None:
+    """Set the process-wide StateStore (called from composition root)."""
+    global _configured_state_store  # noqa: PLW0603
+    _configured_state_store = store
+
+
+def _get_state_store(explicit: StateStore | None) -> StateStore:
+    s = explicit or _configured_state_store
+    if s is None:
+        msg = "StateStore not configured; call configure_state_store() or configure_runtime_defaults()"
+        raise RuntimeError(msg)
+    return s
 
 
 def load_store(*, state_store: StateStore | None = None) -> ApprovalsStore:
     """Load approvals from disk or return empty store."""
-    store = state_store or _default_state_store()
+    store = _get_state_store(state_store)
     with store.lock(_APPROVALS_KEY):
         data = store.read(_APPROVALS_KEY)
     if data is None:
@@ -84,7 +95,7 @@ def load_store(*, state_store: StateStore | None = None) -> ApprovalsStore:
 
 def save_store(store: ApprovalsStore, *, state_store: StateStore | None = None) -> None:
     """Persist approvals to disk."""
-    backend = state_store or _default_state_store()
+    backend = _get_state_store(state_store)
     payload = store.model_dump_json(indent=2).encode("utf-8")
     with backend.lock(_APPROVALS_KEY):
         backend.write(_APPROVALS_KEY, payload)
@@ -207,13 +218,25 @@ def revoke_approval(ctx: ResolvedProjectContext) -> bool:
     return True
 
 
-def consume_once_approval(record: ApprovalRecord) -> None:
-    """Remove a once-mode approval after use."""
+def consume_once_approval(record: ApprovalRecord, *, state_store: StateStore | None = None) -> None:
+    """Atomically remove a once-mode approval after use.
+
+    All of lock → read → filter → write happen under a single advisory lock to
+    prevent a second consumer from seeing a record that has already been removed.
+    """
     if record.mode != "once":
         return
-    store = load_store()
-    store.approvals = [r for r in store.approvals if not record_matches_once(record, r)]
-    save_store(store)
+    backend = _get_state_store(state_store)
+    with backend.lock(_APPROVALS_KEY):
+        data = backend.read(_APPROVALS_KEY)
+        if data is None:
+            return
+        current = ApprovalsStore.model_validate_json(data)
+        filtered = [r for r in current.approvals if not record_matches_once(record, r)]
+        if len(filtered) == len(current.approvals):
+            return  # record already gone — no-op
+        current.approvals = filtered
+        backend.write(_APPROVALS_KEY, current.model_dump_json(indent=2).encode("utf-8"))
 
 
 def _git_output(root: Path, args: list[str]) -> str | None:  # noqa: PLR0911
@@ -293,7 +316,10 @@ def prompt_for_approval(  # noqa: PLR0913
         raise ApprovalRequiredError(msg)
 
     active_policy = policy or load_policy()
-    ui = prompter if prompter is not None else RichPrompter()
+    if prompter is None:
+        msg = "Prompter is required; pass a Prompter instance to prompt_for_approval()"
+        raise RuntimeError(msg)
+    ui = prompter
     request = _build_approval_request(
         ctx,
         cloudsdk_config=cloudsdk_config,

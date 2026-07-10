@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 from mcp.server.fastmcp import FastMCP
 
 from gcpctx.errors import ConfigNotFoundError
-from gcpctx.interfaces.wiring import default_engine
+from gcpctx.interfaces.wiring import configure_runtime_defaults, default_engine
 from gcpctx.models import ActivationRequest
 from gcpctx.services.doctor import run_doctor, status_info
 
@@ -95,9 +95,36 @@ def _status_payload(work: Path) -> dict[str, str]:
     return status_info(work)
 
 
+_GAC_SAFE_MESSAGE = "GOOGLE_APPLICATION_CREDENTIALS is set"
+
+
+def _sanitize_doctor_result(data: dict[str, Any]) -> dict[str, Any]:
+    """Remove credential paths from a serialised DoctorResult before sending over MCP."""
+    checks = data.get("checks")
+    if not isinstance(checks, list):
+        return data
+    sanitized: list[dict[str, Any]] = []
+    for check in checks:
+        if not isinstance(check, dict):
+            sanitized.append(check)
+            continue
+        entry = dict(check)
+        if entry.get("id") == "gac" and entry.get("status") != "pass":
+            entry["message"] = _GAC_SAFE_MESSAGE
+        evidence = entry.get("evidence")
+        if isinstance(evidence, dict):
+            entry["evidence"] = {
+                k: v for k, v in evidence.items() if not (isinstance(v, str) and v.startswith("/"))
+            }
+        sanitized.append(entry)
+    data = dict(data)
+    data["checks"] = sanitized
+    return data
+
+
 def _doctor_payload(work: Path, *, strict: bool) -> dict[str, Any]:
-    result = run_doctor(work, profile=None, strict=strict, interactive=False)
-    return result.model_dump()
+    result = run_doctor(work, profile=None, strict=strict, interactive=False, allow_iam_probe=False)
+    return _sanitize_doctor_result(result.model_dump())
 
 
 def _explain_plan_payload(work: Path, *, profile: str | None) -> dict[str, Any]:
@@ -122,6 +149,7 @@ def _explain_plan_payload(work: Path, *, profile: str | None) -> dict[str, Any]:
 
 def create_server(*, workspace_root: Path | None = None) -> FastMCP:
     """Build a FastMCP server with three read-only gcpctx tools."""
+    configure_runtime_defaults()
     bound = resolve_workspace_root(workspace_root)
     mcp = FastMCP(
         "gcpctx",

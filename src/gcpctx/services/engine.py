@@ -138,6 +138,17 @@ class Engine:
         """Execute plan steps (side effects) and return an ActivationResult."""
         if plan.denial is not None:
             _raise_denial(plan.denial)
+        # Re-verify approval before any side effects to close the TOCTOU window between
+        # plan() and apply(). If the approval disappeared (e.g. another process consumed a
+        # once-approval), abort rather than activating without a valid consent record.
+        if res.approval is not None:
+            current_approval = find_matching_approval(
+                res.ctx, policy=res.policy, gcloud_trust=res.trust
+            )
+            if current_approval is None:
+                msg = "approval was revoked or consumed before activation could complete"
+                raise ApprovalRequiredError(msg)
+            res = replace(res, approval=current_approval)
         self._apply_gcloud_steps(plan, res)
         self._apply_approval_steps(plan, res)
         self._audit.emit(

@@ -18,7 +18,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from gcpctx import paths
-from gcpctx.adapters.system import FileAuditSink
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -33,9 +32,9 @@ def audit_file() -> Path:
 
 
 def _get_sink() -> AuditSink:
-    global _default_sink  # noqa: PLW0603
     if _default_sink is None:
-        _default_sink = FileAuditSink()
+        msg = "AuditSink not configured; call set_audit_sink() or configure_runtime_defaults()"
+        raise RuntimeError(msg)
     return _default_sink
 
 

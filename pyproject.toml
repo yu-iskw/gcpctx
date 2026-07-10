@@ -112,6 +112,12 @@ source_modules = ["gcpctx.services"]
 forbidden_modules = ["gcpctx.interfaces", "gcpctx.cli"]
 
 [[tool.importlinter.contracts]]
+name = "Services do not import adapters"
+type = "forbidden"
+source_modules = ["gcpctx.services"]
+forbidden_modules = ["gcpctx.adapters"]
+
+[[tool.importlinter.contracts]]
 name = "Adapters do not import services or interfaces"
 type = "forbidden"
 source_modules = ["gcpctx.adapters"]

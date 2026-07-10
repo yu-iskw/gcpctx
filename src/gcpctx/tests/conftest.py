@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from gcpctx.gcloud_trust import GcloudTrustResult
+from gcpctx.interfaces.wiring import configure_runtime_defaults
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,6 +35,12 @@ default_profile = "dev"
 project = "my-dev-project"
 service_account = "agent-dev@my-dev-project.iam.gserviceaccount.com"
 """
+
+
+@pytest.fixture(autouse=True)
+def _configure_service_defaults() -> None:
+    """Install production adapters as defaults so every test has a fully wired runtime."""
+    configure_runtime_defaults()
 
 
 @pytest.fixture(autouse=True)

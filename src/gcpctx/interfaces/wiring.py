@@ -18,20 +18,38 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from gcpctx.adapters.gcloud import SubprocessGcloudPort
+from gcpctx.adapters.state import FilesystemStateStore
 from gcpctx.adapters.system import (
     FileAuditSink,
     NullPrompter,
     OsEnvPort,
     RichPrompter,
 )
+from gcpctx.services.approvals import configure_state_store
+from gcpctx.services.audit import set_audit_sink
+from gcpctx.services.doctor import configure_env_port, configure_gcloud_port
 from gcpctx.services.engine import Engine
 
 if TYPE_CHECKING:
     from gcpctx.ports import Prompter
 
 
+def configure_runtime_defaults() -> None:
+    """Install production adapters as process-wide service defaults.
+
+    Call this once at application startup (CLI entry point, MCP create_server).
+    Tests should call this via the conftest autouse fixture so each test gets
+    a fresh set of adapters scoped to the monkeypatched tmp_path.
+    """
+    configure_state_store(FilesystemStateStore())
+    set_audit_sink(FileAuditSink())
+    configure_env_port(OsEnvPort())
+    configure_gcloud_port(SubprocessGcloudPort())
+
+
 def default_engine(*, interactive: bool) -> Engine:
     """Wire production adapters for CLI / MCP activation."""
+    configure_runtime_defaults()
     prompter: Prompter = RichPrompter() if interactive else NullPrompter()
     return Engine(
         gcloud=SubprocessGcloudPort(),

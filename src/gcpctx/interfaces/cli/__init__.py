@@ -44,6 +44,7 @@ from gcpctx.errors import (
 )
 from gcpctx.exit_codes import ExitCode
 from gcpctx.gcloud_trust import resolve_trusted_gcloud
+from gcpctx.interfaces.wiring import configure_runtime_defaults
 from gcpctx.logging import log_stderr
 from gcpctx.models import ActivationRequest, ActivationResult
 from gcpctx.policy import load_policy
@@ -66,6 +67,7 @@ app = typer.Typer(
 @app.callback()
 def main() -> None:
     """Fail closed on unsupported platforms before any subcommand runs."""
+    configure_runtime_defaults()
     try:
         if not is_posix_platform():
             msg = (

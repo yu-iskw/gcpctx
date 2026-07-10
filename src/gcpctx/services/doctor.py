@@ -21,8 +21,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gcpctx import gcloud as gcloud_mod, paths
-from gcpctx.adapters.gcloud import SubprocessGcloudPort
-from gcpctx.adapters.system import OsEnvPort
 from gcpctx.core.checks.evaluators import evaluate_all
 from gcpctx.core.checks.report import findings_to_result
 from gcpctx.core.checks.snapshot import ApprovalFacts, DoctorSnapshot
@@ -46,6 +44,37 @@ if TYPE_CHECKING:
     from gcpctx.models import ApprovalRecord, DoctorResult
     from gcpctx.ports import EnvPort, GcloudPort
     from gcpctx.project_context import ResolvedProjectContext
+
+_configured_env: EnvPort | None = None
+_configured_gcloud: GcloudPort | None = None
+
+
+def configure_env_port(env: EnvPort) -> None:
+    """Set the process-wide EnvPort (called from composition root)."""
+    global _configured_env  # noqa: PLW0603
+    _configured_env = env
+
+
+def configure_gcloud_port(gcloud: GcloudPort) -> None:
+    """Set the process-wide GcloudPort (called from composition root)."""
+    global _configured_gcloud  # noqa: PLW0603
+    _configured_gcloud = gcloud
+
+
+def _get_env_port(explicit: EnvPort | None) -> EnvPort:
+    e = explicit or _configured_env
+    if e is None:
+        msg = "EnvPort not configured; call configure_env_port() or configure_runtime_defaults()"
+        raise RuntimeError(msg)
+    return e
+
+
+def _get_gcloud_port(explicit: GcloudPort | None) -> GcloudPort:
+    g = explicit or _configured_gcloud
+    if g is None:
+        msg = "GcloudPort not configured; call configure_gcloud_port() or configure_runtime_defaults()"
+        raise RuntimeError(msg)
+    return g
 
 
 def _strict_policy_for_checks(policy: SecurityPolicy, effective_strict: bool) -> SecurityPolicy:
@@ -154,13 +183,16 @@ def gather_snapshot(  # noqa: PLR0911,PLR0913
     interactive: bool | None = None,
     env: EnvPort | None = None,
     gcloud: GcloudPort | None = None,
+    allow_iam_probe: bool = True,
 ) -> DoctorSnapshot:
     """Probe filesystem/env and return a frozen DoctorSnapshot.
 
-    Inject ``EnvPort`` or ``GcloudPort`` for testing; defaults to live adapters.
+    Inject ``EnvPort`` or ``GcloudPort`` for testing; defaults to configured adapters.
+    Set ``allow_iam_probe=False`` to suppress the ``gcloud auth print-access-token`` probe
+    (required for read-only callers such as the MCP server).
     """
-    env_port = env or OsEnvPort()
-    gcloud_port = gcloud or SubprocessGcloudPort()
+    env_port = _get_env_port(env)
+    gcloud_port = _get_gcloud_port(gcloud)
     is_interactive = sys.stdin.isatty() if interactive is None else interactive
     cwd_str = str(cwd.resolve())
     cache_root = str(paths.user_cache_path().resolve())
@@ -240,6 +272,7 @@ def gather_snapshot(  # noqa: PLR0911,PLR0913
         deprecated=deprecated,
         env_port=env_port,
         gcloud_port=gcloud_port,
+        allow_iam_probe=allow_iam_probe,
     )
 
 
@@ -256,6 +289,7 @@ def _gather_resolved_snapshot(  # noqa: PLR0912,PLR0913
     deprecated: str | None,
     env_port: EnvPort,
     gcloud_port: GcloudPort,
+    allow_iam_probe: bool = True,
 ) -> DoctorSnapshot:
     check_policy = _strict_policy_for_checks(policy, effective_strict)
     approval_state = resolve_approval_doctor_state(ctx, policy=check_policy, gcloud_trust=trust)
@@ -293,6 +327,9 @@ def _gather_resolved_snapshot(  # noqa: PLR0912,PLR0913
         adc_exists = gcloud_port.adc_exists(expected_raw)
         if effective_strict:
             if not adc_exists:
+                iam_skipped = True
+            elif not allow_iam_probe:
+                # Caller (e.g. MCP server) is read-only and must not mint tokens.
                 iam_skipped = True
             else:
                 probe_ok = gcloud_port.probe_impersonation(
@@ -351,9 +388,19 @@ def run_doctor(
     profile: str | None = None,
     interactive: bool | None = None,
     strict: bool = False,
+    allow_iam_probe: bool = True,
 ) -> DoctorResult:
-    """Run diagnostic checks and return aggregated result."""
-    snapshot = gather_snapshot(cwd, profile=profile, strict=strict, interactive=interactive)
+    """Run diagnostic checks and return aggregated result.
+
+    Set ``allow_iam_probe=False`` to suppress the IAM token probe (e.g. from MCP).
+    """
+    snapshot = gather_snapshot(
+        cwd,
+        profile=profile,
+        strict=strict,
+        interactive=interactive,
+        allow_iam_probe=allow_iam_probe,
+    )
     findings = evaluate_all(snapshot)
     result = findings_to_result(
         findings,
@@ -381,7 +428,7 @@ def _approval_status(root: Path, info: dict[str, str]) -> str:
 
 def status_info(cwd: Path) -> dict[str, str]:
     """Return status fields for display."""
-    env = OsEnvPort()
+    env = _get_env_port(None)
     if env.get("GCPCTX_ACTIVE") != "1":
         return {"active": "false"}
 
