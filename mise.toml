@@ -48,6 +48,8 @@ run = "trunk install"
 [tasks.scan-trivy]
 description = "Trivy filesystem vulnerability scan"
 tools.trivy = "latest"
+# ghcr.io is more reliable than the default mirror.gcr.io in restricted networks
+env = { TRIVY_DB_REPOSITORY = "ghcr.io/aquasecurity/trivy-db:2" }
 run = "trivy fs ."
 
 [tasks.scan-osv]

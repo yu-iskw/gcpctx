@@ -15,20 +15,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, get_args
 
-from gcpctx.shell import render_shell
+from gcpctx.shell import ShellName, render_shell
 
 if TYPE_CHECKING:
     from gcpctx.models import ActivationResult
-    from gcpctx.shell import ShellName
+
+_SHELLS = get_args(ShellName)
 
 
 class SharedShellRenderer:
     """bash/zsh share one render path today; shell name is still validated."""
 
     def render(self, result: ActivationResult, shell: str) -> str:
-        if shell in {"bash", "zsh"}:
+        if shell in _SHELLS:
             return render_shell(result, cast("ShellName", shell))
         msg = f"unsupported shell: {shell}"
         raise ValueError(msg)

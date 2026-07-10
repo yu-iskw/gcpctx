@@ -33,26 +33,32 @@ class ApprovalIdentity(Protocol):
     """Minimal identity fields for approval matching."""
 
     @property
-    def profile_name(self) -> str: ...
+    def profile_name(self) -> str:
+        pass
 
     @property
-    def project(self) -> str: ...
+    def project(self) -> str:
+        pass
 
     @property
-    def service_account(self) -> str: ...
+    def service_account(self) -> str:
+        pass
 
     @property
-    def config_sha256(self) -> str: ...
+    def config_sha256(self) -> str:
+        pass
 
 
 class GcloudTrustInfo(Protocol):
     """Minimal gcloud trust fields for approval binding checks."""
 
     @property
-    def path(self) -> str: ...
+    def path(self) -> str:
+        pass
 
     @property
-    def sha256(self) -> str | None: ...
+    def sha256(self) -> str | None:
+        pass
 
 
 @dataclass(frozen=True)

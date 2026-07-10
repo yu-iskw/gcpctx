@@ -73,7 +73,8 @@ class GcloudPort(Protocol):
         policy: SecurityPolicy | None = None,
         configured_path: str | None = None,
         strict: bool | None = None,
-    ) -> GcloudTrustResult: ...
+    ) -> GcloudTrustResult:
+        pass
 
     def get_property(
         self,
@@ -81,7 +82,8 @@ class GcloudPort(Protocol):
         section_property: str,
         *,
         gcloud_executable: str | None = None,
-    ) -> str | None: ...
+    ) -> str | None:
+        pass
 
     def set_property(
         self,
@@ -90,7 +92,8 @@ class GcloudPort(Protocol):
         value: str,
         *,
         gcloud_executable: str | None = None,
-    ) -> None: ...
+    ) -> None:
+        pass
 
     def adc_login_impersonated(
         self,
@@ -99,11 +102,14 @@ class GcloudPort(Protocol):
         *,
         quota_project: str | None = None,
         gcloud_executable: str | None = None,
-    ) -> None: ...
+    ) -> None:
+        pass
 
-    def adc_exists(self, cloudsdk_config: Path) -> bool: ...
+    def adc_exists(self, cloudsdk_config: Path) -> bool:
+        pass
 
-    def ensure_initialized(self, init_context: InitContext) -> ContextState: ...
+    def ensure_initialized(self, init_context: InitContext) -> ContextState:
+        pass
 
     def probe_impersonation(
         self,
@@ -111,57 +117,68 @@ class GcloudPort(Protocol):
         service_account: str,
         *,
         gcloud_executable: str | None = None,
-    ) -> bool: ...
+    ) -> bool:
+        pass
 
 
 @runtime_checkable
 class StateStore(Protocol):
     """Single writer for managed gcpctx state files."""
 
-    def read(self, key: str) -> bytes | None: ...
+    def read(self, key: str) -> bytes | None:
+        pass
 
-    def write(self, key: str, data: bytes) -> None: ...
+    def write(self, key: str, data: bytes) -> None:
+        pass
 
-    def delete(self, key: str) -> None: ...
+    def delete(self, key: str) -> None:
+        pass
 
-    def lock(self, key: str) -> AbstractContextManager[None]: ...
+    def lock(self, key: str) -> AbstractContextManager[None]:
+        pass
 
 
 @runtime_checkable
 class EnvPort(Protocol):
     """Read-only process environment access."""
 
-    def get(self, name: str) -> str | None: ...
+    def get(self, name: str) -> str | None:
+        pass
 
-    def snapshot(self) -> Mapping[str, str]: ...
+    def snapshot(self) -> Mapping[str, str]:
+        pass
 
 
 @runtime_checkable
 class Clock(Protocol):
     """Time source (UTC)."""
 
-    def now(self) -> datetime: ...
+    def now(self) -> datetime:
+        pass
 
 
 @runtime_checkable
 class Prompter(Protocol):
     """Interactive approval UI; only path that can grant consent."""
 
-    def confirm(self, request: ApprovalRequest) -> ApprovalAnswer: ...
+    def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
+        pass
 
 
 @runtime_checkable
 class AuditSink(Protocol):
     """Structured security audit events."""
 
-    def emit(self, event: str, **fields: object) -> None: ...
+    def emit(self, event: str, **fields: object) -> None:
+        pass
 
 
 @runtime_checkable
 class ShellRenderer(Protocol):
     """Render activation/deactivation as shell code."""
 
-    def render(self, result: ActivationResult, shell: str) -> str: ...
+    def render(self, result: ActivationResult, shell: str) -> str:
+        pass
 
 
 __all__ = [
