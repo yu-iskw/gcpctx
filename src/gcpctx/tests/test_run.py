@@ -96,7 +96,7 @@ def test_run_cli_invokes_command(
         captured["env"] = env
         return 0
 
-    monkeypatch.setattr("gcpctx.cli.run_command", fake_run_command)
+    monkeypatch.setattr("gcpctx.interfaces.cli.run_command", fake_run_command)
     result = runner.invoke(
         app,
         ["run", "--cwd", str(project_tree), "--", "env"],

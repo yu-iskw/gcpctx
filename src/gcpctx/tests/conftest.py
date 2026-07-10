@@ -69,7 +69,7 @@ def _permissive_gcloud_trust(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("gcpctx.adapters.gcloud.resolve_trusted_gcloud", _trust)
     monkeypatch.setattr("gcpctx.services.doctor.resolve_trusted_gcloud", _trust)
-    monkeypatch.setattr("gcpctx.cli.resolve_trusted_gcloud", _trust)
+    monkeypatch.setattr("gcpctx.interfaces.cli.resolve_trusted_gcloud", _trust)
 
 
 @pytest.fixture

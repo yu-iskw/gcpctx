@@ -11,10 +11,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Stable CLI entry re-export (``gcpctx.cli:app``)."""
-
-from __future__ import annotations
-
-from gcpctx.interfaces.cli import app
-
-__all__ = ["app"]
+"""User-facing interfaces (CLI, optional MCP). Translation only."""

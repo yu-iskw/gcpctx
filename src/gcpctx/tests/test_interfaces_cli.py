@@ -11,10 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Stable CLI entry re-export (``gcpctx.cli:app``)."""
+"""Interfaces package smoke tests."""
 
 from __future__ import annotations
 
-from gcpctx.interfaces.cli import app
+from typer import Typer
 
-__all__ = ["app"]
+
+def test_interfaces_cli_exports_app() -> None:
+    from gcpctx.cli import app as reexport_app
+    from gcpctx.interfaces.cli import app
+
+    assert isinstance(app, Typer)
+    assert app is reexport_app

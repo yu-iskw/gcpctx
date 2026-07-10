@@ -71,8 +71,58 @@ dev = [
   "pylint>=3.3.5",
   "vulture>=2.16",
   "ssort>=0.16.0",
+  "import-linter>=2.1",
   "google-auth>=2.55.0",
   "google-cloud-bigquery>=3.42.1",
+]
+
+[tool.importlinter]
+root_package = "gcpctx"
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+  "gcpctx.interfaces",
+  "gcpctx.services",
+  "gcpctx.adapters",
+  "gcpctx.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "Core is independent"
+type = "forbidden"
+source_modules = [
+  "gcpctx.core",
+]
+forbidden_modules = [
+  "gcpctx.adapters",
+  "gcpctx.services",
+  "gcpctx.interfaces",
+  "gcpctx.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "Services do not import interfaces"
+type = "forbidden"
+source_modules = [
+  "gcpctx.services",
+]
+forbidden_modules = [
+  "gcpctx.interfaces",
+  "gcpctx.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "Adapters do not import services or interfaces"
+type = "forbidden"
+source_modules = [
+  "gcpctx.adapters",
+]
+forbidden_modules = [
+  "gcpctx.services",
+  "gcpctx.interfaces",
+  "gcpctx.cli",
 ]
 
 [tool.pyright]
