@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      https://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,19 +15,20 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from gcpctx.core import identity as core_identity
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-SCHEMA_VERSION = "schema-v1"
+SCHEMA_VERSION = core_identity.SCHEMA_VERSION
 
 
 @dataclass(frozen=True)
 class ContextIdInput:
-    """Inputs for context ID derivation."""
+    """Inputs for context ID derivation (Path root for backward compatibility)."""
 
     root: Path
     profile: str
@@ -38,14 +39,12 @@ class ContextIdInput:
 
 def derive_context_id(input_: ContextIdInput) -> str:
     """Return deterministic 24-char hex context ID."""
-    payload = "\0".join(
-        [
-            str(input_.root.resolve()),
-            input_.profile,
-            input_.project,
-            input_.service_account,
-            input_.config_sha256,
-            SCHEMA_VERSION,
-        ]
+    return core_identity.derive_context_id(
+        core_identity.ContextIdInput(
+            root=str(input_.root.resolve()),
+            profile=input_.profile,
+            project=input_.project,
+            service_account=input_.service_account,
+            config_sha256=input_.config_sha256,
+        )
     )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]

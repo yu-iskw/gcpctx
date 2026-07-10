@@ -189,3 +189,4 @@ codeql-summary.txt
 node_modules/
 
 .gcpctx.toml
+.todo_list/

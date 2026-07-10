@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from gcpctx.gcloud_trust import GcloudTrustResult
+from gcpctx.interfaces.wiring import configure_runtime_defaults
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,6 +38,12 @@ service_account = "agent-dev@my-dev-project.iam.gserviceaccount.com"
 
 
 @pytest.fixture(autouse=True)
+def _configure_service_defaults() -> None:
+    """Install production adapters as defaults so every test has a fully wired runtime."""
+    configure_runtime_defaults()
+
+
+@pytest.fixture(autouse=True)
 def _isolated_gcpctx_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Route gcpctx state under tmp_path with safe permissions."""
     cache = tmp_path / "cache" / "gcpctx"
@@ -49,7 +56,6 @@ def _isolated_gcpctx_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("gcpctx.paths.user_config_path", lambda: config)
     monkeypatch.setattr("gcpctx.paths.context_base_dir", lambda: cache / "contexts")
     monkeypatch.setattr("gcpctx.paths.approvals_file", lambda: config / "approvals.json")
-    monkeypatch.setattr("gcpctx.audit.log_event", lambda *_args, **_kwargs: None)
 
 
 @pytest.fixture(autouse=True)
@@ -67,9 +73,8 @@ def _permissive_gcloud_trust(monkeypatch: pytest.MonkeyPatch) -> None:
         path = shutil.which("gcloud") or "/usr/bin/gcloud"
         return GcloudTrustResult(path=path, sha256="test" * 8)
 
-    monkeypatch.setattr("gcpctx.activation.resolve_trusted_gcloud", _trust)
-    monkeypatch.setattr("gcpctx.doctor.resolve_trusted_gcloud", _trust)
-    monkeypatch.setattr("gcpctx.cli.resolve_trusted_gcloud", _trust)
+    monkeypatch.setattr("gcpctx.adapters.gcloud.resolve_trusted_gcloud", _trust)
+    monkeypatch.setattr("gcpctx.interfaces.cli.resolve_trusted_gcloud", _trust)
 
 
 @pytest.fixture

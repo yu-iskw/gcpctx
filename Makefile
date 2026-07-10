@@ -33,11 +33,15 @@ upgrade-deps:
 	uv sync --all-extras
 
 # Check all the coding style.
-.PHONY: lint lint-python
+.PHONY: lint lint-python lint-imports
 lint:
 	mise run lint
 
 lint-python: lint
+
+# Enforce layered import contracts (import-linter; see pyproject [tool.importlinter]).
+lint-imports:
+	uv run lint-imports
 
 # Format source codes
 .PHONY: format

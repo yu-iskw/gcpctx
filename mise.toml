@@ -31,6 +31,10 @@ description = "Run Trunk on all files"
 tools.trunk = "latest"
 run = "trunk check -a"
 
+[tasks.lint-imports]
+description = "Enforce layered import contracts (import-linter)"
+run = "uv run lint-imports"
+
 [tasks.format-trunk]
 description = "Format sources with Trunk"
 tools.trunk = "latest"
@@ -44,6 +48,8 @@ run = "trunk install"
 [tasks.scan-trivy]
 description = "Trivy filesystem vulnerability scan"
 tools.trivy = "latest"
+# ghcr.io is more reliable than the default mirror.gcr.io in restricted networks
+env = { TRIVY_DB_REPOSITORY = "ghcr.io/aquasecurity/trivy-db:2" }
 run = "trivy fs ."
 
 [tasks.scan-osv]
