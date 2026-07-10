@@ -58,6 +58,11 @@ def _is_managed_state_path(path: Path) -> bool:
     )
 
 
+def is_managed_state_path(path: Path) -> bool:
+    """Return True when *path* resolves under gcpctx config or cache roots."""
+    return _is_managed_state_path(path)
+
+
 def reject_symlink(path: Path) -> None:
     """Raise if *path* exists and is a symlink."""
     try:

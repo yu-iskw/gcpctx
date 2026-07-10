@@ -20,10 +20,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gcpctx import paths
+from gcpctx.errors import UnsafePermissionError
 from gcpctx.security import (
     ensure_managed_file,
     file_lock,
-    reject_symlink,
+    is_managed_state_path,
     secure_read_text,
     secure_remove_tree,
 )
@@ -52,13 +53,16 @@ def _logical_state_path(key: str) -> Path | None:
 
 
 def resolve_state_key(key: str) -> Path:
-    """Map a logical state key (or absolute path) to a filesystem path."""
+    """Map a logical state key (or managed absolute path) to a filesystem path."""
     logical = _logical_state_path(key)
     if logical is not None:
         return logical
     path = Path(key)
     if path.is_absolute():
-        return path
+        if is_managed_state_path(path):
+            return path
+        msg = f"state path outside managed gcpctx roots: {path}"
+        raise UnsafePermissionError(msg)
     msg = f"unknown state key: {key}"
     raise KeyError(msg)
 
@@ -67,7 +71,7 @@ class FilesystemStateStore:
     """Atomic, locked, symlink-safe state under managed gcpctx roots."""
 
     def resolve(self, key: str) -> Path:
-        """Resolve *key* to a path (logical key or absolute path)."""
+        """Resolve *key* to a path (logical key or managed absolute path)."""
         return resolve_state_key(key)
 
     def read(self, key: str) -> bytes | None:
@@ -83,15 +87,9 @@ class FilesystemStateStore:
         ensure_managed_file(path, data.decode("utf-8"))
 
     def delete(self, key: str) -> None:
-        """Remove the file or tree for *key* if it exists."""
+        """Remove the file or tree for *key* if it exists (managed roots only)."""
         path = self.resolve(key)
-        if not path.exists():
-            return
-        reject_symlink(path)
-        if path.is_dir():
-            secure_remove_tree(path)
-            return
-        path.unlink()
+        secure_remove_tree(path)
 
     @contextmanager
     def lock(self, key: str) -> Iterator[None]:

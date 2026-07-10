@@ -27,7 +27,7 @@ class SharedShellRenderer:
     """bash/zsh share one render path today; shell name is still validated."""
 
     def render(self, result: ActivationResult, shell: str) -> str:
-        if shell == "bash" or shell == "zsh":
+        if shell in {"bash", "zsh"}:
             return render_shell(result, shell)
         msg = f"unsupported shell: {shell}"
         raise ValueError(msg)

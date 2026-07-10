@@ -61,6 +61,17 @@ def test_context_state_key_and_absolute_path() -> None:
         store.resolve("not-a-key")
 
 
+def test_absolute_path_outside_managed_roots_rejected(tmp_path: Path) -> None:
+    store = FilesystemStateStore()
+    escape = tmp_path / "escape.json"
+    with pytest.raises(UnsafePermissionError, match="outside managed"):
+        store.write(str(escape), b"{}")
+    escape.write_text("victim", encoding="utf-8")
+    with pytest.raises(UnsafePermissionError, match="outside managed"):
+        store.delete(str(escape))
+    assert escape.read_text(encoding="utf-8") == "victim"
+
+
 def test_reject_symlink_on_read(tmp_path: Path) -> None:
     store = FilesystemStateStore()
     target = store.resolve("approvals")
