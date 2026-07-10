@@ -23,13 +23,7 @@ Prints the Markdown table rows to stdout. Redirect to update the doc section:
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Allow running directly without installing the package when the src layout is used.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from gcpctx.core.checks.registry import generate_catalog_table_lines  # noqa: E402
+from gcpctx.core.checks.registry import generate_catalog_table_lines
 
 
 def main() -> None:

@@ -59,7 +59,7 @@ def generate_catalog_table_lines() -> list[str]:
         parts = [f" {cell:<{col_widths[i]}} " for i, cell in enumerate(cells)]
         return "|" + "|".join(parts) + "|"
 
-    sep = "|" + "|".join(f" {'-' * w} " for w in col_widths) + "|"
+    sep = "|" + "|".join(" " + ("-" * w) + " " for w in col_widths) + "|"
     lines: list[str] = [_fmt(_CATALOG_HEADERS), sep]
     lines.extend(_fmt(row) for row in rows)
     return lines
