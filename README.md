@@ -153,7 +153,7 @@ In hook mode, `GOOGLE_APPLICATION_CREDENTIALS` is unset while active (previous v
 
 ## Coding agents (Cursor, Claude Code, Codex, Copilot)
 
-Agents run in terminals or sandboxes that inherit environment variables. Use either **shell activation** (whole session) or **`gcpctx run`** (one process only).
+Agents run in terminals or sandboxes that inherit environment variables. Use either **shell activation** (whole session) or **`gcpctx run`** (one process only). For MCP, Claude Code hooks, and the three-tier agent integration guide, see **[docs/agents.md](docs/agents.md)** (optional `gcpctx[mcp]` / `gcpctx mcp` is read-only; agents cannot self-approve).
 
 ### Process-scoped launch (recommended for agents)
 

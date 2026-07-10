@@ -57,6 +57,11 @@ dependencies = [
 [project.scripts]
 gcpctx = "gcpctx.cli:app"
 
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.0.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["src/gcpctx/tests"]
 
@@ -74,6 +79,7 @@ dev = [
   "import-linter>=2.1",
   "google-auth>=2.55.0",
   "google-cloud-bigquery>=3.42.1",
+  "mcp>=1.0.0",
 ]
 
 [tool.importlinter]

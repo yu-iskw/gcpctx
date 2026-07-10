@@ -537,6 +537,26 @@ def install(
     _emit_init(shell)
 
 
+@app.command("mcp")
+def mcp_cmd(
+    cwd: Annotated[
+        Path | None,
+        typer.Option(
+            help="Workspace root for cwd validation (also set via GCPCTX_MCP_ROOT).",
+        ),
+    ] = None,
+) -> None:
+    """Run read-only MCP server on stdio (requires the mcp optional extra)."""
+    try:
+        from gcpctx.interfaces.mcp import run_stdio  # noqa: PLC0415
+    except ImportError:
+        typer.echo("Install with: pip install 'gcpctx[mcp]'", err=True)
+        raise typer.Exit(code=1) from None
+    # Keep stdout clean for the MCP protocol; diagnostics go to stderr only.
+    root = cwd.resolve() if cwd is not None else None
+    run_stdio(workspace_root=root)
+
+
 if __name__ == "__main__":
     app()
 
