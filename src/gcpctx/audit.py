@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      https://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,44 +15,36 @@
 
 from __future__ import annotations
 
-import json
-import os
 from typing import TYPE_CHECKING, Any
 
 from gcpctx import paths
-from gcpctx.security import FILE_MODE, ensure_dir, file_lock, is_posix_platform, reject_symlink
-from gcpctx.timeutil import utc_now_iso
+from gcpctx.adapters.system import FileAuditSink
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from gcpctx.ports import AuditSink
+
+_default_sink: AuditSink | None = None
 
 
 def audit_file() -> Path:
     return paths.user_config_path() / "audit.jsonl"
 
 
+def _get_sink() -> AuditSink:
+    global _default_sink  # noqa: PLW0603
+    if _default_sink is None:
+        _default_sink = FileAuditSink()
+    return _default_sink
+
+
+def set_audit_sink(sink: AuditSink | None) -> None:
+    """Override the process-wide audit sink (tests / DI)."""
+    global _default_sink  # noqa: PLW0603
+    _default_sink = sink
+
+
 def log_event(event_type: str, **fields: Any) -> None:
     """Append a security audit event without credential material."""
-    path = audit_file()
-    ensure_dir(path.parent)
-    record = {"ts": utc_now_iso(), "event": event_type, **fields}
-    line = json.dumps(record, separators=(",", ":")) + "\n"
-    with file_lock(path):
-        reject_symlink(path)
-        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(path, flags, FILE_MODE)
-        handed_off = False
-        try:
-            if is_posix_platform():
-                os.fchmod(fd, FILE_MODE)
-            with os.fdopen(fd, "a", encoding="utf-8") as handle:
-                handed_off = True
-                handle.write(line)
-                handle.flush()
-                os.fsync(handle.fileno())
-        except OSError:
-            if not handed_off:
-                os.close(fd)
-            raise
+    _get_sink().emit(event_type, **fields)
