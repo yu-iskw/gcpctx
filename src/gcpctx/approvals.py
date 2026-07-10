@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Literal
 
 from gcpctx import audit
 from gcpctx.adapters.state import FilesystemStateStore
-from gcpctx.adapters.system import NullPrompter, RichPrompter
+from gcpctx.adapters.system import RichPrompter
 from gcpctx.config import service_account_project
 from gcpctx.core.approval_rules import (
     APPROVAL_SCHEMA_V2,
@@ -304,9 +304,7 @@ def prompt_for_approval(  # noqa: PLR0913
     prompter: Prompter | None = None,
 ) -> ApprovalRecord:
     """Prompt user for approval or fail closed in non-interactive mode."""
-    active_policy = policy or load_policy()
-    ui = prompter if prompter is not None else (RichPrompter() if interactive else NullPrompter())
-    if not interactive and prompter is None:
+    if not interactive:
         audit.log_event(
             "approval_denied",
             root=str(ctx.root),
@@ -316,24 +314,15 @@ def prompt_for_approval(  # noqa: PLR0913
         msg = "approval required for activation (non-interactive mode)"
         raise ApprovalRequiredError(msg)
 
+    active_policy = policy or load_policy()
+    ui = prompter if prompter is not None else RichPrompter()
     request = _build_approval_request(
         ctx,
         cloudsdk_config=cloudsdk_config,
         policy=active_policy,
         gcloud_trust=gcloud_trust,
     )
-    try:
-        answer = ui.confirm(request)
-    except ApprovalRequiredError:
-        if interactive:
-            raise
-        audit.log_event(
-            "approval_denied",
-            root=str(ctx.root),
-            profile=ctx.profile_name,
-            reason="non_interactive",
-        )
-        raise
+    answer = ui.confirm(request)
 
     if answer.decision == "deny":
         audit.log_event(

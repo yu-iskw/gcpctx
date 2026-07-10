@@ -25,7 +25,7 @@ from gcpctx.errors import ApprovalRequiredError, ConfigNotFoundError
 from gcpctx.models import ActivationRequest
 from gcpctx.project_context import resolve_project_context
 from gcpctx.services.engine import Engine
-from gcpctx.tests.fakes import FakeAuditSink, FakeClock, FakeEnv, FakeGcloudPort
+from gcpctx.tests.fakes import FakeAuditSink, FakeClock, FakeEnv, FakeGcloudPort, FakePrompter
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -95,6 +95,20 @@ def test_activate_happy_path(project_tree: Path) -> None:
 def test_null_prompter_fails_closed(project_tree: Path) -> None:
     engine, *_ = _engine(prompter=NullPrompter())
     with pytest.raises(ApprovalRequiredError):
+        engine.activate(
+            ActivationRequest(
+                cwd=project_tree,
+                shell_name="zsh",
+                interactive=False,
+                skip_gcloud_init=True,
+            )
+        )
+
+
+def test_injected_prompter_cannot_bypass_non_interactive(project_tree: Path) -> None:
+    """Non-interactive activation must fail closed even with an approving prompter."""
+    engine, *_ = _engine(prompter=FakePrompter(["remembered"]))
+    with pytest.raises(ApprovalRequiredError, match="non-interactive"):
         engine.activate(
             ActivationRequest(
                 cwd=project_tree,
