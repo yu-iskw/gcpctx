@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -24,26 +25,36 @@ from gcpctx.project_context import resolve_project_context
 
 pytest.importorskip("mcp")
 
-from gcpctx.interfaces.mcp import create_server, validate_cwd
+# Optional extra: skip module collection when mcp is absent.
+from gcpctx.interfaces.mcp import (  # pylint: disable=wrong-import-position
+    create_server,
+    validate_cwd,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from pathlib import Path
+
+    from mcp.server.fastmcp import FastMCP
 
 _EXPECTED_TOOLS = frozenset({"gcpctx_status", "gcpctx_doctor", "gcpctx_explain_plan"})
 
 
-def _tool_fn(server: Any, name: str) -> Callable[..., Any]:
-    tool = server._tool_manager.get_tool(name)
-    assert tool is not None
-    return tool.fn
+async def _call_tool(server: FastMCP, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    result = await server.call_tool(name, arguments)
+    if isinstance(result, tuple):
+        _blocks, structured = result
+        assert isinstance(structured, dict)
+        return structured
+    assert isinstance(result, dict)
+    return result
 
 
 def test_create_server_registers_exactly_three_tools() -> None:
     server = create_server()
-    names = {tool.name for tool in server._tool_manager.list_tools()}
+    tools = asyncio.run(server.list_tools())
+    names = {tool.name for tool in tools}
     assert names == _EXPECTED_TOOLS
-    for tool in server._tool_manager.list_tools():
+    for tool in tools:
         assert "gcpctx approve" in (tool.description or "")
 
 
@@ -69,7 +80,7 @@ def test_validate_cwd_rejects_non_directory(tmp_path: Path) -> None:
 
 def test_status_tool_returns_dict(project_tree: Path) -> None:
     server = create_server(workspace_root=project_tree)
-    result = _tool_fn(server, "gcpctx_status")(cwd=str(project_tree))
+    result = asyncio.run(_call_tool(server, "gcpctx_status", {"cwd": str(project_tree)}))
     assert isinstance(result, dict)
     assert "active" in result
 
@@ -78,7 +89,9 @@ def test_explain_plan_denial_does_not_mutate_approvals(project_tree: Path) -> No
     before = load_store()
     assert before.approvals == []
     server = create_server(workspace_root=project_tree)
-    result = _tool_fn(server, "gcpctx_explain_plan")(cwd=str(project_tree))
+    result = asyncio.run(
+        _call_tool(server, "gcpctx_explain_plan", {"cwd": str(project_tree)}),
+    )
     assert result["denied"] is True
     assert result["exit_code"] == 3
     assert result.get("remediation") == "gcpctx approve"
@@ -92,6 +105,6 @@ def test_explain_plan_config_not_found(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
     empty.mkdir()
     server = create_server(workspace_root=empty)
-    result = _tool_fn(server, "gcpctx_explain_plan")(cwd=str(empty))
+    result = asyncio.run(_call_tool(server, "gcpctx_explain_plan", {"cwd": str(empty)}))
     assert result["error"] == "config_not_found"
     assert result["exit_code"] == 2

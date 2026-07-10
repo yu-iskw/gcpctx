@@ -105,9 +105,7 @@ def check_settings(snapshot: DoctorSnapshot) -> Finding | None:
         "settings.toml contains deprecated gcloud_path; move it to .gcpctx.toml "
         "and remove the global key",
         evidence={"deprecated_key": "gcloud_path"},
-        remediation_command=(
-            "Run gcpctx config in the project directory, then edit settings.toml"
-        ),
+        remediation_command=("Run gcpctx config in the project directory, then edit settings.toml"),
     )
 
 

@@ -120,9 +120,7 @@ def findings_to_result(  # noqa: PLR0912, PLR0913
             spec = DOCTOR_CHECK_REGISTRY.get(finding.check_id)
             if spec is not None:
                 entry.remediation_command = spec.default_command
-        if _contributes_exit(
-            finding.check_id, status, interactive=interactive, strict=strict
-        ):
+        if _contributes_exit(finding.check_id, status, interactive=interactive, strict=strict):
             code = (
                 finding.exit_code
                 if finding.exit_code is not None

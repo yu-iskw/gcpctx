@@ -58,9 +58,7 @@ dependencies = [
 gcpctx = "gcpctx.cli:app"
 
 [project.optional-dependencies]
-mcp = [
-    "mcp>=1.0.0",
-]
+mcp = ["mcp>=1.0.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/gcpctx/tests"]
@@ -98,9 +96,7 @@ layers = [
 [[tool.importlinter.contracts]]
 name = "Core is independent"
 type = "forbidden"
-source_modules = [
-  "gcpctx.core",
-]
+source_modules = ["gcpctx.core"]
 forbidden_modules = [
   "gcpctx.adapters",
   "gcpctx.services",
@@ -111,25 +107,14 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Services do not import interfaces"
 type = "forbidden"
-source_modules = [
-  "gcpctx.services",
-]
-forbidden_modules = [
-  "gcpctx.interfaces",
-  "gcpctx.cli",
-]
+source_modules = ["gcpctx.services"]
+forbidden_modules = ["gcpctx.interfaces", "gcpctx.cli"]
 
 [[tool.importlinter.contracts]]
 name = "Adapters do not import services or interfaces"
 type = "forbidden"
-source_modules = [
-  "gcpctx.adapters",
-]
-forbidden_modules = [
-  "gcpctx.services",
-  "gcpctx.interfaces",
-  "gcpctx.cli",
-]
+source_modules = ["gcpctx.adapters"]
+forbidden_modules = ["gcpctx.services", "gcpctx.interfaces", "gcpctx.cli"]
 
 [tool.pyright]
 include = ["src"]

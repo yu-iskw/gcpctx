@@ -17,10 +17,10 @@ from __future__ import annotations
 
 from typer import Typer
 
+from gcpctx.cli import app as reexport_app
+from gcpctx.interfaces.cli import app
+
 
 def test_interfaces_cli_exports_app() -> None:
-    from gcpctx.cli import app as reexport_app
-    from gcpctx.interfaces.cli import app
-
     assert isinstance(app, Typer)
     assert app is reexport_app

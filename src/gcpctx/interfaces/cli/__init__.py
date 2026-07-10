@@ -548,7 +548,9 @@ def mcp_cmd(
 ) -> None:
     """Run read-only MCP server on stdio (requires the mcp optional extra)."""
     try:
-        from gcpctx.interfaces.mcp import run_stdio  # noqa: PLC0415
+        from gcpctx.interfaces.mcp import (  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
+            run_stdio,
+        )
     except ImportError:
         typer.echo("Install with: pip install 'gcpctx[mcp]'", err=True)
         raise typer.Exit(code=1) from None

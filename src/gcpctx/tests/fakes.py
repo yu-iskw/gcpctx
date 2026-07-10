@@ -94,9 +94,7 @@ class FakeClock:
 class FakePrompter:
     """Scripted approval answers; raises when the script is exhausted."""
 
-    def __init__(
-        self, answers: Sequence[ApprovalAnswer | ApprovalDecision] | None = None
-    ) -> None:
+    def __init__(self, answers: Sequence[ApprovalAnswer | ApprovalDecision] | None = None) -> None:
         self._answers: list[ApprovalAnswer] = []
         for item in answers or []:
             if isinstance(item, ApprovalAnswer):

@@ -25,9 +25,5 @@ _CONTRACT_DOC = _REPO_ROOT / "docs" / "doctor-contract.md"
 
 def test_doctor_contract_doc_lists_all_check_ids() -> None:
     text = _CONTRACT_DOC.read_text(encoding="utf-8")
-    missing = [
-        check_id
-        for check_id in DOCTOR_CHECK_REGISTRY
-        if f"`{check_id}`" not in text
-    ]
+    missing = [check_id for check_id in DOCTOR_CHECK_REGISTRY if f"`{check_id}`" not in text]
     assert not missing, f"docs/doctor-contract.md missing check ids: {missing}"

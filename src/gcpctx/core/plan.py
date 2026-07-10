@@ -37,8 +37,7 @@ SHELL_BACKUP_VARS: tuple[str, ...] = (
 )
 
 GAC_WARNING = (
-    "GOOGLE_APPLICATION_CREDENTIALS is set and may override ADC; "
-    "it will be unset for this context"
+    "GOOGLE_APPLICATION_CREDENTIALS is set and may override ADC; it will be unset for this context"
 )
 
 GAC_CONFLICT_MESSAGE = (

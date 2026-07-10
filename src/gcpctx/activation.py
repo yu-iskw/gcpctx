@@ -34,7 +34,9 @@ def missing_config_result() -> ActivationResult:
 def activate(request: ActivationRequest) -> ActivationResult:
     """Activate gcpctx for the given request."""
     # Deferred import: package __init__ loads activation; wiring imports Engine.
-    from gcpctx.interfaces.wiring import default_engine  # noqa: PLC0415
+    from gcpctx.interfaces.wiring import (  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
+        default_engine,
+    )
 
     engine = default_engine(interactive=request.interactive)
     return engine.activate(request)

@@ -34,9 +34,7 @@ from gcpctx.services.doctor import run_doctor, status_info
 if TYPE_CHECKING:
     from gcpctx.core.plan import Plan
 
-_HUMAN_APPROVAL_NOTE = (
-    "Approval cannot be granted via MCP; a human must run `gcpctx approve`."
-)
+_HUMAN_APPROVAL_NOTE = "Approval cannot be granted via MCP; a human must run `gcpctx approve`."
 
 _STATUS_DESC = (
     "Return gcpctx activation status for a directory (posture metadata only; "
