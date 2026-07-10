@@ -11,10 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Diagnostics: status and doctor (shim to services.doctor)."""
+"""Pure doctor checks: Snapshot -> Finding (no I/O)."""
 
 from __future__ import annotations
 
-from gcpctx.services.doctor import run_doctor, status_info
+from gcpctx.core.checks.evaluators import evaluate_all
+from gcpctx.core.checks.report import findings_to_result
+from gcpctx.core.checks.snapshot import ApprovalFacts, DoctorSnapshot, Finding
 
-__all__ = ["run_doctor", "status_info"]
+__all__ = [
+    "ApprovalFacts",
+    "DoctorSnapshot",
+    "Finding",
+    "evaluate_all",
+    "findings_to_result",
+]

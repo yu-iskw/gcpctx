@@ -11,10 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Diagnostics: status and doctor (shim to services.doctor)."""
-
-from __future__ import annotations
-
-from gcpctx.services.doctor import run_doctor, status_info
-
-__all__ = ["run_doctor", "status_info"]

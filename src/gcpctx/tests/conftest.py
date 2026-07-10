@@ -68,7 +68,7 @@ def _permissive_gcloud_trust(monkeypatch: pytest.MonkeyPatch) -> None:
         return GcloudTrustResult(path=path, sha256="test" * 8)
 
     monkeypatch.setattr("gcpctx.adapters.gcloud.resolve_trusted_gcloud", _trust)
-    monkeypatch.setattr("gcpctx.doctor.resolve_trusted_gcloud", _trust)
+    monkeypatch.setattr("gcpctx.services.doctor.resolve_trusted_gcloud", _trust)
     monkeypatch.setattr("gcpctx.cli.resolve_trusted_gcloud", _trust)
 
 
