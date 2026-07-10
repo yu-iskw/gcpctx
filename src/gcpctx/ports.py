@@ -74,7 +74,7 @@ class GcloudPort(Protocol):
         configured_path: str | None = None,
         strict: bool | None = None,
     ) -> GcloudTrustResult:
-        pass
+        raise NotImplementedError
 
     def get_property(
         self,
@@ -83,7 +83,7 @@ class GcloudPort(Protocol):
         *,
         gcloud_executable: str | None = None,
     ) -> str | None:
-        pass
+        raise NotImplementedError
 
     def set_property(
         self,
@@ -93,7 +93,7 @@ class GcloudPort(Protocol):
         *,
         gcloud_executable: str | None = None,
     ) -> None:
-        pass
+        raise NotImplementedError
 
     def adc_login_impersonated(
         self,
@@ -103,13 +103,13 @@ class GcloudPort(Protocol):
         quota_project: str | None = None,
         gcloud_executable: str | None = None,
     ) -> None:
-        pass
+        raise NotImplementedError
 
     def adc_exists(self, cloudsdk_config: Path) -> bool:
-        pass
+        raise NotImplementedError
 
     def ensure_initialized(self, init_context: InitContext) -> ContextState:
-        pass
+        raise NotImplementedError
 
     def probe_impersonation(
         self,
@@ -118,7 +118,7 @@ class GcloudPort(Protocol):
         *,
         gcloud_executable: str | None = None,
     ) -> bool:
-        pass
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -126,16 +126,16 @@ class StateStore(Protocol):
     """Single writer for managed gcpctx state files."""
 
     def read(self, key: str) -> bytes | None:
-        pass
+        raise NotImplementedError
 
     def write(self, key: str, data: bytes) -> None:
-        pass
+        raise NotImplementedError
 
     def delete(self, key: str) -> None:
-        pass
+        raise NotImplementedError
 
     def lock(self, key: str) -> AbstractContextManager[None]:
-        pass
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -143,10 +143,10 @@ class EnvPort(Protocol):
     """Read-only process environment access."""
 
     def get(self, name: str) -> str | None:
-        pass
+        raise NotImplementedError
 
     def snapshot(self) -> Mapping[str, str]:
-        pass
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -154,7 +154,7 @@ class Clock(Protocol):
     """Time source (UTC)."""
 
     def now(self) -> datetime:
-        pass
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -162,7 +162,7 @@ class Prompter(Protocol):
     """Interactive approval UI; only path that can grant consent."""
 
     def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
-        pass
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -170,7 +170,7 @@ class AuditSink(Protocol):
     """Structured security audit events."""
 
     def emit(self, event: str, **fields: object) -> None:
-        pass
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -178,7 +178,7 @@ class ShellRenderer(Protocol):
     """Render activation/deactivation as shell code."""
 
     def render(self, result: ActivationResult, shell: str) -> str:
-        pass
+        raise NotImplementedError
 
 
 __all__ = [

@@ -34,19 +34,19 @@ class ApprovalIdentity(Protocol):
 
     @property
     def profile_name(self) -> str:
-        pass
+        raise NotImplementedError
 
     @property
     def project(self) -> str:
-        pass
+        raise NotImplementedError
 
     @property
     def service_account(self) -> str:
-        pass
+        raise NotImplementedError
 
     @property
     def config_sha256(self) -> str:
-        pass
+        raise NotImplementedError
 
 
 class GcloudTrustInfo(Protocol):
@@ -54,11 +54,11 @@ class GcloudTrustInfo(Protocol):
 
     @property
     def path(self) -> str:
-        pass
+        raise NotImplementedError
 
     @property
     def sha256(self) -> str | None:
-        pass
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)

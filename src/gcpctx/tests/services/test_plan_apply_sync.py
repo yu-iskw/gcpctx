@@ -25,31 +25,31 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from gcpctx.approvals import add_approval
+from gcpctx.approvals import add_approval, find_matching_approval
 from gcpctx.core.plan import (
+    ActivationFacts,
     ConsumeOnceApproval,
     EnsureContextDir,
     InitImpersonatedAdc,
+    Plan,
     SetGcloudProperty,
+    Step,
     WriteContextState,
     build_activation_plan,
     build_init_steps,
 )
-from gcpctx.models import ActivationRequest
+from gcpctx.models import ActivationRequest, ContextState
 from gcpctx.project_context import resolve_project_context
 from gcpctx.services.engine import Engine
 from gcpctx.tests.fakes import FakeAuditSink, FakeEnv, FakeGcloudPort
+from gcpctx.timeutil import utc_now_iso
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from gcpctx.core.plan import ActivationFacts, Plan, Step
-
 
 def _make_facts(project_tree: Path) -> ActivationFacts:
     """Return ActivationFacts for a typical remembered approval."""
-    from gcpctx.core.plan import ActivationFacts
-
     ctx = resolve_project_context(project_tree)
     cloudsdk_config = str(ctx.expected_cloudsdk_config())
     return ActivationFacts(
@@ -183,9 +183,6 @@ class TestEnginePlanApplyIntegration:
         add_approval(ctx, mode="remembered")
         engine, port = self._engine()
 
-        from gcpctx.models import ContextState
-        from gcpctx.timeutil import utc_now_iso
-
         ctx_id = ctx.context_id()
         now = utc_now_iso()
         port.init_states[ctx_id] = ContextState(
@@ -232,9 +229,6 @@ class TestEnginePlanApplyIntegration:
         add_approval(ctx, mode="once")
         engine, port = self._engine()
 
-        from gcpctx.models import ContextState
-        from gcpctx.timeutil import utc_now_iso
-
         ctx_id = ctx.context_id()
         now = utc_now_iso()
         port.init_states[ctx_id] = ContextState(
@@ -252,7 +246,5 @@ class TestEnginePlanApplyIntegration:
         plan = engine.plan(res, request)
         assert plan.denial is None
         engine.apply(plan, res)
-
-        from gcpctx.approvals import find_matching_approval
 
         assert find_matching_approval(ctx) is None
