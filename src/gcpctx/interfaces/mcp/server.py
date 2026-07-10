@@ -30,6 +30,7 @@ from gcpctx.errors import ConfigNotFoundError
 from gcpctx.interfaces.wiring import configure_runtime_defaults, default_engine
 from gcpctx.models import ActivationRequest
 from gcpctx.services.doctor import run_doctor, status_info
+from gcpctx.services.engine import Engine  # noqa: TC001
 
 if TYPE_CHECKING:
     from gcpctx.core.plan import Plan
@@ -127,8 +128,12 @@ def _doctor_payload(work: Path, *, strict: bool) -> dict[str, Any]:
     return _sanitize_doctor_result(result.model_dump())
 
 
-def _explain_plan_payload(work: Path, *, profile: str | None) -> dict[str, Any]:
-    engine = default_engine(interactive=False)
+def _explain_plan_payload(
+    work: Path,
+    *,
+    profile: str | None,
+    engine: Engine,
+) -> dict[str, Any]:
     try:
         plan = engine.explain_plan(
             ActivationRequest(
@@ -150,6 +155,7 @@ def _explain_plan_payload(work: Path, *, profile: str | None) -> dict[str, Any]:
 def create_server(*, workspace_root: Path | None = None) -> FastMCP:
     """Build a FastMCP server with three read-only gcpctx tools."""
     configure_runtime_defaults()
+    engine = default_engine(interactive=False)
     bound = resolve_workspace_root(workspace_root)
     mcp = FastMCP(
         "gcpctx",
@@ -175,7 +181,7 @@ def create_server(*, workspace_root: Path | None = None) -> FastMCP:
         cwd: str | None = None,
         profile: str | None = None,
     ) -> dict[str, Any]:
-        return _explain_plan_payload(validate_cwd(cwd, bound), profile=profile)
+        return _explain_plan_payload(validate_cwd(cwd, bound), profile=profile, engine=engine)
 
     return mcp
 

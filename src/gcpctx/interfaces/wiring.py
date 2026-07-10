@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from gcpctx.adapters.gcloud import SubprocessGcloudPort
@@ -31,29 +32,46 @@ from gcpctx.services.doctor import configure_env_port, configure_gcloud_port
 from gcpctx.services.engine import Engine
 
 if TYPE_CHECKING:
-    from gcpctx.ports import Prompter
+    from gcpctx.ports import AuditSink, EnvPort, GcloudPort, Prompter, StateStore
 
 
-def configure_runtime_defaults() -> None:
+@dataclass(frozen=True, slots=True)
+class RuntimePorts:
+    """Production adapters shared by Engine and service defaults."""
+
+    gcloud: GcloudPort
+    env: EnvPort
+    audit: AuditSink
+    state: StateStore
+
+
+def configure_runtime_defaults() -> RuntimePorts:
     """Install production adapters as process-wide service defaults.
 
     Call this once at application startup (CLI entry point, MCP create_server).
     Tests should call this via the conftest autouse fixture so each test gets
     a fresh set of adapters scoped to the monkeypatched tmp_path.
     """
-    configure_state_store(FilesystemStateStore())
-    set_audit_sink(FileAuditSink())
-    configure_env_port(OsEnvPort())
-    configure_gcloud_port(SubprocessGcloudPort())
+    ports = RuntimePorts(
+        gcloud=SubprocessGcloudPort(),
+        env=OsEnvPort(),
+        audit=FileAuditSink(),
+        state=FilesystemStateStore(),
+    )
+    configure_state_store(ports.state)
+    set_audit_sink(ports.audit)
+    configure_env_port(ports.env)
+    configure_gcloud_port(ports.gcloud)
+    return ports
 
 
 def default_engine(*, interactive: bool) -> Engine:
     """Wire production adapters for CLI / MCP activation."""
-    configure_runtime_defaults()
+    ports = configure_runtime_defaults()
     prompter: Prompter = RichPrompter() if interactive else NullPrompter()
     return Engine(
-        gcloud=SubprocessGcloudPort(),
-        env=OsEnvPort(),
-        audit=FileAuditSink(),
+        gcloud=ports.gcloud,
+        env=ports.env,
+        audit=ports.audit,
         prompter=prompter,
     )

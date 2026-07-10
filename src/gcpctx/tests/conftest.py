@@ -56,7 +56,6 @@ def _isolated_gcpctx_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("gcpctx.paths.user_config_path", lambda: config)
     monkeypatch.setattr("gcpctx.paths.context_base_dir", lambda: cache / "contexts")
     monkeypatch.setattr("gcpctx.paths.approvals_file", lambda: config / "approvals.json")
-    monkeypatch.setattr("gcpctx.audit.log_event", lambda *_args, **_kwargs: None)
 
 
 @pytest.fixture(autouse=True)

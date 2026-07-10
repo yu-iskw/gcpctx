@@ -220,46 +220,43 @@ def gather_snapshot(  # noqa: PLR0911,PLR0913
     try:
         ctx = resolve_project_context(cwd, profile, policy=policy)
     except ConfigNotFoundError:
-        trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port)
-        return _partial_snapshot(
-            interactive=is_interactive,
+        return _config_error_snapshot(
+            cwd,
+            policy=policy,
             effective_strict=effective_strict,
+            interactive=is_interactive,
             cache_root=cache_root,
             cwd_str=cwd_str,
-            policy=policy,
-            config_error=".gcpctx.toml not found",
             deprecated=deprecated,
-            trust=trust,
-            trust_error=trust_error,
+            gcloud_port=gcloud_port,
+            config_error=".gcpctx.toml not found",
         )
     except ConfigValidationError as exc:
-        trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port)
-        return _partial_snapshot(
-            interactive=is_interactive,
+        return _config_error_snapshot(
+            cwd,
+            policy=policy,
             effective_strict=effective_strict,
+            interactive=is_interactive,
             cache_root=cache_root,
             cwd_str=cwd_str,
-            policy=policy,
+            deprecated=deprecated,
+            gcloud_port=gcloud_port,
             config_error=str(exc),
             schema_error=True,
             config_error_exit_code=exc.exit_code,
-            deprecated=deprecated,
-            trust=trust,
-            trust_error=trust_error,
         )
     except GcpctxError as exc:
-        trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port)
-        return _partial_snapshot(
-            interactive=is_interactive,
+        return _config_error_snapshot(
+            cwd,
+            policy=policy,
             effective_strict=effective_strict,
+            interactive=is_interactive,
             cache_root=cache_root,
             cwd_str=cwd_str,
-            policy=policy,
+            deprecated=deprecated,
+            gcloud_port=gcloud_port,
             config_error=str(exc),
             config_error_exit_code=exc.exit_code,
-            deprecated=deprecated,
-            trust=trust,
-            trust_error=trust_error,
         )
 
     trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port, ctx.gcloud_path)
@@ -276,6 +273,36 @@ def gather_snapshot(  # noqa: PLR0911,PLR0913
         env_port=env_port,
         gcloud_port=gcloud_port,
         allow_iam_probe=allow_iam_probe,
+    )
+
+
+def _config_error_snapshot(  # noqa: PLR0913
+    cwd: Path,
+    *,
+    policy: SecurityPolicy,
+    effective_strict: bool,
+    interactive: bool,
+    cache_root: str,
+    cwd_str: str,
+    deprecated: str | None,
+    gcloud_port: GcloudPort,
+    config_error: str,
+    schema_error: bool = False,
+    config_error_exit_code: int | None = None,
+) -> DoctorSnapshot:
+    trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port)
+    return _partial_snapshot(
+        interactive=interactive,
+        effective_strict=effective_strict,
+        cache_root=cache_root,
+        cwd_str=cwd_str,
+        policy=policy,
+        config_error=config_error,
+        schema_error=schema_error,
+        config_error_exit_code=config_error_exit_code,
+        deprecated=deprecated,
+        trust=trust,
+        trust_error=trust_error,
     )
 
 
