@@ -18,8 +18,8 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+from gcpctx.interfaces.wiring import default_engine
 from gcpctx.models import ActivationResult
-from gcpctx.services.engine import default_engine
 
 if TYPE_CHECKING:
     from gcpctx.models import ActivationRequest

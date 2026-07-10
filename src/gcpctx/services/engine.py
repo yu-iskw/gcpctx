@@ -19,14 +19,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from gcpctx.adapters.gcloud import SubprocessGcloudPort
-from gcpctx.adapters.system import (
-    FileAuditSink,
-    NullPrompter,
-    OsEnvPort,
-    RichPrompter,
-    SystemClock,
-)
 from gcpctx.approvals import (
     consume_once_approval,
     find_matching_approval,
@@ -272,20 +264,7 @@ def _result_from_plan(plan: Plan) -> ActivationResult:
     )
 
 
-def default_engine(*, interactive: bool) -> Engine:
-    """Wire production adapters for CLI activation."""
-    prompter: Prompter = RichPrompter() if interactive else NullPrompter()
-    return Engine(
-        gcloud=SubprocessGcloudPort(),
-        env=OsEnvPort(),
-        audit=FileAuditSink(),
-        clock=SystemClock(),
-        prompter=prompter,
-    )
-
-
 __all__ = [
     "Engine",
     "Resolution",
-    "default_engine",
 ]

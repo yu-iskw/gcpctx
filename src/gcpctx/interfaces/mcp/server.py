@@ -27,9 +27,9 @@ from typing import TYPE_CHECKING, Any
 from mcp.server.fastmcp import FastMCP
 
 from gcpctx.errors import ConfigNotFoundError
+from gcpctx.interfaces.wiring import default_engine
 from gcpctx.models import ActivationRequest
 from gcpctx.services.doctor import run_doctor, status_info
-from gcpctx.services.engine import default_engine
 
 if TYPE_CHECKING:
     from gcpctx.core.plan import Plan
