@@ -175,7 +175,7 @@ def gather_snapshot(  # noqa: PLR0911, PLR0913
     audit_sink: AuditSink | None = None,
 ) -> DoctorSnapshot:
     """Probe ports/filesystem and return a frozen DoctorSnapshot."""
-    del gcloud, audit_sink  # reserved for future full port injection
+    del gcloud, audit_sink
     env_port = env or OsEnvPort()
     is_interactive = sys.stdin.isatty() if interactive is None else interactive
     cwd_str = str(cwd.resolve())
@@ -387,8 +387,7 @@ def _approval_status(root: Path, info: dict[str, str]) -> str:
         approval = find_matching_approval(ctx, policy=policy, gcloud_trust=trust)
     except GcpctxError:
         return "unknown"
-    else:
-        return approval.mode if approval else "none"
+    return approval.mode if approval else "none"
 
 
 def status_info(cwd: Path) -> dict[str, str]:

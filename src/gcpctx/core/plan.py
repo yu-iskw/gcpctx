@@ -308,7 +308,7 @@ def _ready_plan(
 def build_activation_plan(facts: ActivationFacts) -> Plan:
     """Build a pure activation Plan (steps + env delta) or a Denial."""
     if not facts.approval_present:
-        plan = _denied(
+        return _denied(
             facts,
             Denial(
                 exit_code=int(ExitCode.APPROVAL_REQUIRED),
@@ -316,9 +316,7 @@ def build_activation_plan(facts: ActivationFacts) -> Plan:
                 remediation="gcpctx approve",
             ),
         )
-    else:
-        plan = _plan_with_approval(facts)
-    return plan
+    return _plan_with_approval(facts)
 
 
 def _plan_with_approval(facts: ActivationFacts) -> Plan:
@@ -334,7 +332,7 @@ def _plan_with_approval(facts: ActivationFacts) -> Plan:
 
     warnings = (*gac_warnings, *facts.trust_warnings)
     will_init = not facts.skip_gcloud_init
-    adc_ready = True if will_init else facts.adc_exists
+    adc_ready = will_init or facts.adc_exists
     if facts.require_initialized_adc_for_hook and facts.hook_mode and not adc_ready:
         return _approved_not_initialized(facts, warnings)
 

@@ -30,13 +30,15 @@ from gcpctx.tests.fakes import FakeAuditSink, FakeClock, FakeEnv, FakeGcloudPort
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from gcpctx.ports import Prompter
+
 
 def _engine(
     *,
     gcloud: FakeGcloudPort | None = None,
     env: FakeEnv | None = None,
     audit: FakeAuditSink | None = None,
-    prompter: object | None = None,
+    prompter: Prompter | None = None,
 ) -> tuple[Engine, FakeGcloudPort, FakeAuditSink, FakeEnv]:
     port = gcloud or FakeGcloudPort()
     sink = audit or FakeAuditSink()
@@ -46,7 +48,7 @@ def _engine(
         env=fake_env,
         audit=sink,
         clock=FakeClock(),
-        prompter=prompter,  # type: ignore[arg-type]
+        prompter=prompter,
     )
     return engine, port, sink, fake_env
 

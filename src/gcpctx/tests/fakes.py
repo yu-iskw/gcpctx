@@ -18,7 +18,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from gcpctx.errors import ApprovalRequiredError
 from gcpctx.gcloud_trust import GcloudTrustResult
@@ -94,13 +94,15 @@ class FakeClock:
 class FakePrompter:
     """Scripted approval answers; raises when the script is exhausted."""
 
-    def __init__(self, answers: Sequence[ApprovalAnswer | str] | None = None) -> None:
+    def __init__(
+        self, answers: Sequence[ApprovalAnswer | ApprovalDecision] | None = None
+    ) -> None:
         self._answers: list[ApprovalAnswer] = []
         for item in answers or []:
             if isinstance(item, ApprovalAnswer):
                 self._answers.append(item)
             else:
-                self._answers.append(ApprovalAnswer(decision=cast("ApprovalDecision", item)))
+                self._answers.append(ApprovalAnswer(decision=item))
         self.requests: list[ApprovalRequest] = []
 
     def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
