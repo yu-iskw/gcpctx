@@ -154,8 +154,8 @@ def _explain_plan_payload(
 
 def create_server(*, workspace_root: Path | None = None) -> FastMCP:
     """Build a FastMCP server with three read-only gcpctx tools."""
-    configure_runtime_defaults()
-    engine = default_engine(interactive=False)
+    ports = configure_runtime_defaults()
+    engine = default_engine(interactive=False, ports=ports)
     bound = resolve_workspace_root(workspace_root)
     mcp = FastMCP(
         "gcpctx",

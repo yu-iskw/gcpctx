@@ -65,13 +65,17 @@ def configure_runtime_defaults() -> RuntimePorts:
     return ports
 
 
-def default_engine(*, interactive: bool) -> Engine:
+def default_engine(
+    *,
+    interactive: bool,
+    ports: RuntimePorts | None = None,
+) -> Engine:
     """Wire production adapters for CLI / MCP activation."""
-    ports = configure_runtime_defaults()
+    runtime = ports or configure_runtime_defaults()
     prompter: Prompter = RichPrompter() if interactive else NullPrompter()
     return Engine(
-        gcloud=ports.gcloud,
-        env=ports.env,
-        audit=ports.audit,
+        gcloud=runtime.gcloud,
+        env=runtime.env,
+        audit=runtime.audit,
         prompter=prompter,
     )
