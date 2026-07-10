@@ -19,11 +19,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from gcpctx.approvals import (
-    consume_once_approval,
-    find_matching_approval,
-    prompt_for_approval,
-)
 from gcpctx.core.contract import ExitCode
 from gcpctx.core.plan import (
     ActivationFacts,
@@ -45,6 +40,11 @@ from gcpctx.gcloud import InitContext
 from gcpctx.models import ActivationResult
 from gcpctx.policy import load_policy
 from gcpctx.project_context import resolve_project_context
+from gcpctx.services.approvals import (
+    consume_once_approval,
+    find_matching_approval,
+    prompt_for_approval,
+)
 
 if TYPE_CHECKING:
     from gcpctx.gcloud_trust import GcloudTrustResult

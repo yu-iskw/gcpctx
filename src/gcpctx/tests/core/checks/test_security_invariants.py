@@ -16,17 +16,21 @@
 from __future__ import annotations
 
 from gcpctx.core.checks.evaluators import (
+    check_adc,
     check_ambient_cloudsdk,
     check_approval,
+    check_approval_expiry,
     check_env_project,
     check_expected_context,
     check_gac,
     check_gcloud_project,
     check_gcloud_trust,
     check_impersonation,
+    check_impersonation_iam,
+    check_policy,
     check_state_permissions,
 )
-from gcpctx.core.checks.snapshot import DoctorSnapshot
+from gcpctx.core.checks.snapshot import ApprovalFacts, DoctorSnapshot
 from gcpctx.core.contract import ExitCode
 from gcpctx.core.plan import (
     APPROVAL_REQUIRED_MESSAGE,
@@ -226,3 +230,86 @@ def test_policy_allowlist_denial_via_strict_facts() -> None:
     )
     assert plan.denial is not None
     assert plan.denial.exit_code == int(ExitCode.APPROVAL_REQUIRED)
+
+
+def test_approval_expiry_expired_remembered_check_fails() -> None:
+    """Expired remembered approval → approval_expiry check fails.
+
+    Plan side: approval_present=False (expired record does not count as matching)
+    → plan denies with APPROVAL_REQUIRED.
+    """
+    expired = ApprovalFacts(
+        mode="remembered",
+        expires_at="2024-01-01T00:00:00+00:00",
+        evidence_id="abc123",
+    )
+    finding = check_approval_expiry(
+        _snapshot(
+            approval_matching=None,
+            approval_identity=expired,
+            approval_expired=expired,
+        )
+    )
+    assert finding is not None
+    assert finding.status == "error"
+    assert finding.check_id == "approval_expiry"
+    assert "expired" in finding.message
+
+    plan = build_activation_plan(_facts(approval_present=False))
+    assert plan.denial is not None
+    assert plan.denial.exit_code == int(ExitCode.APPROVAL_REQUIRED)
+
+
+def test_adc_not_exists_check_fails_plan_includes_init_step() -> None:
+    """adc_exists=False → check_adc fails; plan with skip_gcloud_init=False includes InitImpersonatedAdc.
+
+    The check detects the unhealthy state; the plan knows how to fix it.
+    """
+    finding = check_adc(
+        _snapshot(
+            adc_exists=False,
+            gcloud_trust_path="/usr/bin/gcloud",
+        )
+    )
+    assert finding is not None
+    assert finding.status in ("error", "warning")
+    assert finding.check_id == "adc"
+
+    plan = build_activation_plan(_facts(skip_gcloud_init=False, adc_exists=False))
+    assert plan.denial is None
+    assert any(isinstance(step, InitImpersonatedAdc) for step in plan.steps)
+
+
+def test_policy_error_check_fails() -> None:
+    """policy_error in snapshot → check_policy returns an error finding.
+
+    Policy load errors surface in the snapshot before config resolution;
+    no plan is built in this path.
+    """
+    finding = check_policy(
+        _snapshot(
+            config_found=False,
+            policy=None,
+            policy_error="policy.toml: unknown key 'bad_field'",
+            policy_error_exit_code=int(ExitCode.POLICY_VIOLATION),
+        )
+    )
+    assert finding is not None
+    assert finding.status == "error"
+    assert finding.check_id == "policy"
+    assert "policy.toml" in finding.message
+
+
+def test_impersonation_iam_probe_fails_check_fails() -> None:
+    """impersonation_iam check fails when probe returns ok=False."""
+    finding = check_impersonation_iam(
+        _snapshot(
+            impersonation_iam_ok=False,
+            impersonation_iam_skipped_adc=False,
+            impersonation_iam_error="IAM impersonation probe failed: permission denied",
+        )
+    )
+    assert finding is not None
+    assert finding.status == "error"
+    assert finding.check_id == "impersonation_iam"
+    assert "failed" in finding.message.lower() or "denied" in finding.message.lower()

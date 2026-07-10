@@ -20,13 +20,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from gcpctx import audit, gcloud as gcloud_mod, paths
+from gcpctx import gcloud as gcloud_mod, paths
 from gcpctx.adapters.system import OsEnvPort
-from gcpctx.approvals import (
-    approval_evidence_id,
-    find_matching_approval,
-    resolve_approval_doctor_state,
-)
 from gcpctx.core.checks.evaluators import evaluate_all
 from gcpctx.core.checks.report import findings_to_result
 from gcpctx.core.checks.snapshot import ApprovalFacts, DoctorSnapshot
@@ -36,6 +31,12 @@ from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.policy import SecurityPolicy, load_policy
 from gcpctx.project_context import resolve_project_context
 from gcpctx.security import check_path_permissions, reject_symlink
+from gcpctx.services import audit
+from gcpctx.services.approvals import (
+    approval_evidence_id,
+    find_matching_approval,
+    resolve_approval_doctor_state,
+)
 from gcpctx.settings import deprecated_global_gcloud_path
 from gcpctx.version import __version__
 

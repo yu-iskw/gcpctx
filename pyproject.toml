@@ -75,6 +75,7 @@ dev = [
   "vulture>=2.16",
   "ssort>=0.16.0",
   "import-linter>=2.1",
+  "hypothesis>=6.0",
   "google-auth>=2.55.0",
   "google-cloud-bigquery>=3.42.1",
   "mcp>=1.0.0",

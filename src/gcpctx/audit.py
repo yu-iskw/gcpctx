@@ -11,40 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Append-oriented security audit log."""
+"""Strangler shim: re-exports gcpctx.services.audit for backward compatibility."""
 
-from __future__ import annotations
+from gcpctx.services.audit import (
+    audit_file,
+    log_event,
+    set_audit_sink,
+)
 
-from typing import TYPE_CHECKING, Any
-
-from gcpctx import paths
-from gcpctx.adapters.system import FileAuditSink
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from gcpctx.ports import AuditSink
-
-_default_sink: AuditSink | None = None
-
-
-def audit_file() -> Path:
-    return paths.user_config_path() / "audit.jsonl"
-
-
-def _get_sink() -> AuditSink:
-    global _default_sink  # noqa: PLW0603
-    if _default_sink is None:
-        _default_sink = FileAuditSink()
-    return _default_sink
-
-
-def set_audit_sink(sink: AuditSink | None) -> None:
-    """Override the process-wide audit sink (tests / DI)."""
-    global _default_sink  # noqa: PLW0603
-    _default_sink = sink
-
-
-def log_event(event_type: str, **fields: Any) -> None:
-    """Append a security audit event without credential material."""
-    _get_sink().emit(event_type, **fields)
+__all__ = [
+    "audit_file",
+    "log_event",
+    "set_audit_sink",
+]

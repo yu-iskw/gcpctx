@@ -45,6 +45,9 @@ jobs:
       - name: Vulture (dead code)
         run: |
           uv run vulture
+      - name: Import contracts (import-linter)
+        run: |
+          uv run lint-imports
       - name: Run tests
         run: |
           uv run bash dev/test_python.sh
