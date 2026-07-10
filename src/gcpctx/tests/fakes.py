@@ -141,8 +141,9 @@ class FakeGcloudPort:
         *,
         policy: SecurityPolicy | None = None,
         configured_path: str | None = None,
+        strict: bool | None = None,
     ) -> GcloudTrustResult:
-        del cwd, policy, configured_path
+        del cwd, policy, configured_path, strict
         return self.binary
 
     def get_property(

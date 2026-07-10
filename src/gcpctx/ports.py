@@ -72,6 +72,7 @@ class GcloudPort(Protocol):
         *,
         policy: SecurityPolicy | None = None,
         configured_path: str | None = None,
+        strict: bool | None = None,
     ) -> GcloudTrustResult: ...
 
     def get_property(

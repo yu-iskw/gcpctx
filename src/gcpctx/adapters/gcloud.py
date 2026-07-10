@@ -39,8 +39,9 @@ class SubprocessGcloudPort:
         *,
         policy: SecurityPolicy | None = None,
         configured_path: str | None = None,
+        strict: bool | None = None,
     ) -> GcloudTrustResult:
-        return resolve_trusted_gcloud(cwd, policy, configured_path=configured_path)
+        return resolve_trusted_gcloud(cwd, policy, configured_path=configured_path, strict=strict)
 
     def get_property(
         self,

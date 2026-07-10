@@ -20,13 +20,12 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from gcpctx import gcloud as gcloud_mod, paths
+from gcpctx import paths
 from gcpctx.core.checks.evaluators import evaluate_all
 from gcpctx.core.checks.report import findings_to_result
 from gcpctx.core.checks.snapshot import ApprovalFacts, DoctorSnapshot
 from gcpctx.discovery import find_project_root
 from gcpctx.errors import ConfigNotFoundError, ConfigValidationError, GcpctxError
-from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.policy import SecurityPolicy, load_policy
 from gcpctx.project_context import resolve_project_context
 from gcpctx.security import check_path_permissions, reject_symlink
@@ -131,12 +130,16 @@ def _gather_trust(
     cwd: Path,
     policy: SecurityPolicy,
     effective_strict: bool,
+    gcloud_port: GcloudPort,
     configured_path: str | None = None,
 ) -> tuple[GcloudTrustResult | None, str | None]:
     try:
         return (
-            resolve_trusted_gcloud(
-                cwd, policy=policy, strict=effective_strict, configured_path=configured_path
+            gcloud_port.resolve_binary(
+                cwd,
+                policy=policy,
+                configured_path=configured_path,
+                strict=effective_strict,
             ),
             None,
         )
@@ -217,7 +220,7 @@ def gather_snapshot(  # noqa: PLR0911,PLR0913
     try:
         ctx = resolve_project_context(cwd, profile, policy=policy)
     except ConfigNotFoundError:
-        trust, trust_error = _gather_trust(cwd, policy, effective_strict)
+        trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port)
         return _partial_snapshot(
             interactive=is_interactive,
             effective_strict=effective_strict,
@@ -230,7 +233,7 @@ def gather_snapshot(  # noqa: PLR0911,PLR0913
             trust_error=trust_error,
         )
     except ConfigValidationError as exc:
-        trust, trust_error = _gather_trust(cwd, policy, effective_strict)
+        trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port)
         return _partial_snapshot(
             interactive=is_interactive,
             effective_strict=effective_strict,
@@ -245,7 +248,7 @@ def gather_snapshot(  # noqa: PLR0911,PLR0913
             trust_error=trust_error,
         )
     except GcpctxError as exc:
-        trust, trust_error = _gather_trust(cwd, policy, effective_strict)
+        trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port)
         return _partial_snapshot(
             interactive=is_interactive,
             effective_strict=effective_strict,
@@ -259,7 +262,7 @@ def gather_snapshot(  # noqa: PLR0911,PLR0913
             trust_error=trust_error,
         )
 
-    trust, trust_error = _gather_trust(cwd, policy, effective_strict, ctx.gcloud_path)
+    trust, trust_error = _gather_trust(cwd, policy, effective_strict, gcloud_port, ctx.gcloud_path)
     return _gather_resolved_snapshot(
         ctx,
         policy=policy,
@@ -316,10 +319,10 @@ def _gather_resolved_snapshot(  # noqa: PLR0912,PLR0913
     state_checked = False
 
     if trust is not None:
-        gcloud_project_property = gcloud_mod.read_gcloud_property(
+        gcloud_project_property = gcloud_port.get_property(
             expected_raw, "project", gcloud_executable=trust.path
         )
-        impersonation_property = gcloud_mod.read_gcloud_property(
+        impersonation_property = gcloud_port.get_property(
             expected_raw,
             "auth/impersonate_service_account",
             gcloud_executable=trust.path,
@@ -328,16 +331,15 @@ def _gather_resolved_snapshot(  # noqa: PLR0912,PLR0913
         if effective_strict:
             if not adc_exists:
                 iam_skipped = True
-            elif not allow_iam_probe:
-                # Caller (e.g. MCP server) is read-only and must not mint tokens.
-                iam_skipped = True
-            else:
+            elif allow_iam_probe:
                 probe_ok = gcloud_port.probe_impersonation(
                     expected_raw, ctx.service_account, gcloud_executable=trust.path
                 )
                 iam_ok = probe_ok
                 if not probe_ok:
                     iam_error = "IAM impersonation probe failed"
+            # allow_iam_probe=False: leave iam_ok=None / iam_skipped=False so the
+            # impersonation_iam check is omitted (read-only callers must not mint tokens).
 
     if effective_strict:
         state_issues, state_path = _gather_state_permissions()
@@ -415,11 +417,11 @@ def run_doctor(
     return result
 
 
-def _approval_status(root: Path, info: dict[str, str]) -> str:
+def _approval_status(root: Path, info: dict[str, str], gcloud_port: GcloudPort) -> str:
     try:
         policy = load_policy()
         ctx = resolve_project_context(root, info.get("profile"), policy=policy)
-        trust = resolve_trusted_gcloud(root, policy=policy, configured_path=ctx.gcloud_path)
+        trust = gcloud_port.resolve_binary(root, policy=policy, configured_path=ctx.gcloud_path)
         approval = find_matching_approval(ctx, policy=policy, gcloud_trust=trust)
     except GcpctxError:
         return "unknown"
@@ -429,6 +431,7 @@ def _approval_status(root: Path, info: dict[str, str]) -> str:
 def status_info(cwd: Path) -> dict[str, str]:
     """Return status fields for display."""
     env = _get_env_port(None)
+    gcloud_port = _get_gcloud_port(None)
     if env.get("GCPCTX_ACTIVE") != "1":
         return {"active": "false"}
 
@@ -443,9 +446,9 @@ def status_info(cwd: Path) -> dict[str, str]:
 
     root = find_project_root(cwd)
     if root:
-        info["approval"] = _approval_status(root, info)
+        info["approval"] = _approval_status(root, info, gcloud_port)
 
     cloudsdk = info.get("cloudsdk_config", "")
     if cloudsdk:
-        info["adc"] = "initialized" if gcloud_mod.adc_exists(Path(cloudsdk)) else "missing"
+        info["adc"] = "initialized" if gcloud_port.adc_exists(Path(cloudsdk)) else "missing"
     return info
