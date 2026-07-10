@@ -41,11 +41,11 @@ Project `.mcp.json` (Claude Code prompts for host-side approval on first use):
 
 Tools (no mutations, no tokens):
 
-| Tool | Purpose |
-| --- | --- |
-| `gcpctx_status` | Activation posture (`status --json` fields) |
-| `gcpctx_doctor` | Doctor report (`model_dump`; safe fields only) |
-| `gcpctx_explain_plan` | Dry-run plan or denial + remediation |
+| Tool                  | Purpose                                        |
+| --------------------- | ---------------------------------------------- |
+| `gcpctx_status`       | Activation posture (`status --json` fields)    |
+| `gcpctx_doctor`       | Doctor report (`model_dump`; safe fields only) |
+| `gcpctx_explain_plan` | Dry-run plan or denial + remediation           |
 
 **Not exposed:** `approve`, `revoke`, `activate`. When `gcpctx_explain_plan` is denied for
 missing approval, ask a human to run `gcpctx approve`.
@@ -64,12 +64,16 @@ formats. Schemas evolve with Claude Code — adapt as needed.
 ```json
 {
   "hooks": {
-    "SessionStart": [{
-      "hooks": [{
-        "type": "command",
-        "command": "gcpctx doctor --strict --json || { echo 'gcpctx posture unsafe — run: gcpctx doctor' >&2; exit 2; }"
-      }]
-    }]
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gcpctx doctor --strict --json || { echo 'gcpctx posture unsafe — run: gcpctx doctor' >&2; exit 2; }"
+          }
+        ]
+      }
+    ]
   }
 }
 ```
@@ -82,13 +86,17 @@ project mismatches. Exit **2** to block; write remediation on stderr for the mod
 ```json
 {
   "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{
-        "type": "command",
-        "command": "cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$cmd\" in gcloud\\ *|bq\\ *|terraform\\ *) active=$(gcpctx status --json 2>/dev/null | jq -r '.active // \"false\"'); if [ \"$active\" != \"true\" ]; then echo 'gcpctx inactive — run: gcpctx approve && eval \"$(gcpctx activate)\" or gcpctx run -- …' >&2; exit 2; fi ;; esac"
-      }]
-    }]
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$cmd\" in gcloud\\ *|bq\\ *|terraform\\ *) active=$(gcpctx status --json 2>/dev/null | jq -r '.active // \"false\"'); if [ \"$active\" != \"true\" ]; then echo 'gcpctx inactive — run: gcpctx approve && eval \"$(gcpctx activate)\" or gcpctx run -- …' >&2; exit 2; fi ;; esac"
+          }
+        ]
+      }
+    ]
   }
 }
 ```

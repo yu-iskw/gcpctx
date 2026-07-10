@@ -42,7 +42,7 @@ _EXPECTED_TOOLS = frozenset({"gcpctx_status", "gcpctx_doctor", "gcpctx_explain_p
 async def _call_tool(server: FastMCP, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     result = await server.call_tool(name, arguments)
     if isinstance(result, tuple):
-        _blocks, structured = result
+        structured = result[1]
         assert isinstance(structured, dict)
         return structured
     assert isinstance(result, dict)
