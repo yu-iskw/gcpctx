@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      https://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import subprocess  # nosec B404
@@ -27,6 +26,15 @@ from rich.console import Console
 
 from gcpctx import audit, paths
 from gcpctx.config import service_account_project
+from gcpctx.core.approval_rules import (
+    APPROVAL_SCHEMA_V2,
+    approval_evidence_id,
+    build_approval_record,
+    identity_matches,
+    is_expired,
+    record_matches,
+    record_matches_once,
+)
 from gcpctx.errors import ApprovalRequiredError
 from gcpctx.models import ApprovalRecord, ApprovalsStore
 from gcpctx.policy import SecurityPolicy, load_policy
@@ -40,7 +48,23 @@ if TYPE_CHECKING:
     from gcpctx.project_context import ResolvedProjectContext
 
 ApprovalMode = Literal["once", "remembered"]
-APPROVAL_SCHEMA_V2 = 2
+
+__all__ = [
+    "APPROVAL_SCHEMA_V2",
+    "ApprovalDoctorState",
+    "ApprovalMode",
+    "add_approval",
+    "approval_evidence_id",
+    "consume_once_approval",
+    "find_expired_remembered_approval",
+    "find_identity_approval",
+    "find_matching_approval",
+    "load_store",
+    "prompt_for_approval",
+    "resolve_approval_doctor_state",
+    "revoke_approval",
+    "save_store",
+]
 
 
 def load_store() -> ApprovalsStore:
@@ -61,55 +85,8 @@ def save_store(store: ApprovalsStore) -> None:
         ensure_managed_file(path, store.model_dump_json(indent=2))
 
 
-def _identity_matches(
-    record: ApprovalRecord,
-    ctx: ResolvedProjectContext,
-    root_str: str,
-) -> bool:
-    return (
-        record.root == root_str
-        and record.profile == ctx.profile_name
-        and record.project == ctx.project
-        and record.service_account == ctx.service_account
-        and record.config_sha256 == ctx.config_sha256
-    )
-
-
-def _record_matches(  # noqa: PLR0911, PLR0912
-    record: ApprovalRecord,
-    ctx: ResolvedProjectContext,
-    root_str: str,
-    policy: SecurityPolicy,
-    gcloud_trust: GcloudTrustResult | None,
-) -> bool:
-    if not _identity_matches(record, ctx, root_str):
-        return False
-    if record.schema_version < APPROVAL_SCHEMA_V2 and policy.strict:
-        return False
-    if policy.require_gcloud_path_approval:
-        if gcloud_trust is None:
-            return False
-        if record.gcloud_path != gcloud_trust.path:
-            return False
-        if (
-            record.gcloud_sha256 is not None
-            and gcloud_trust.sha256 is not None
-            and record.gcloud_sha256 != gcloud_trust.sha256
-        ):
-            return False
-    return True
-
-
-def _is_expired(record: ApprovalRecord) -> bool:
-    if record.mode != "remembered" or not record.expires_at:
-        return False
-    try:
-        expires = datetime.fromisoformat(record.expires_at)
-    except ValueError:
-        return True
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=UTC)
-    return datetime.now(tz=UTC) >= expires
+def _now_utc() -> datetime:
+    return datetime.now(tz=UTC)
 
 
 def find_matching_approval(
@@ -122,10 +99,11 @@ def find_matching_approval(
     active_policy = policy or load_policy()
     store = load_store()
     root_str = str(ctx.root.resolve())
+    now = _now_utc()
     for record in store.approvals:
-        if not _record_matches(record, ctx, root_str, active_policy, gcloud_trust):
+        if not record_matches(record, ctx, root_str, active_policy, gcloud_trust):
             continue
-        if _is_expired(record):
+        if is_expired(record, now):
             continue
         return record
     return None
@@ -135,7 +113,7 @@ def find_identity_approval(ctx: ResolvedProjectContext) -> ApprovalRecord | None
     """Return the newest identity-matching approval regardless of expiry or gcloud binding."""
     store = load_store()
     root_str = str(ctx.root.resolve())
-    matches = [r for r in store.approvals if _identity_matches(r, ctx, root_str)]
+    matches = [r for r in store.approvals if identity_matches(r, ctx, root_str)]
     if not matches:
         return None
     return max(matches, key=lambda record: record.approved_at)
@@ -146,7 +124,7 @@ def find_expired_remembered_approval(ctx: ResolvedProjectContext) -> ApprovalRec
     record = find_identity_approval(ctx)
     if record is None or record.mode != "remembered":
         return None
-    if not _is_expired(record):
+    if not is_expired(record, _now_utc()):
         return None
     return record
 
@@ -169,34 +147,25 @@ def resolve_approval_doctor_state(
     """Load approval state once for doctor approval and approval_expiry checks."""
     store = load_store()
     root_str = str(ctx.root.resolve())
-    identity_matches = [r for r in store.approvals if _identity_matches(r, ctx, root_str)]
-    identity = (
-        max(identity_matches, key=lambda record: record.approved_at) if identity_matches else None
-    )
+    now = _now_utc()
+    identity_hits = [r for r in store.approvals if identity_matches(r, ctx, root_str)]
+    identity = max(identity_hits, key=lambda record: record.approved_at) if identity_hits else None
     matching: ApprovalRecord | None = None
     for record in store.approvals:
-        if not _record_matches(record, ctx, root_str, policy, gcloud_trust):
+        if not record_matches(record, ctx, root_str, policy, gcloud_trust):
             continue
-        if _is_expired(record):
+        if is_expired(record, now):
             continue
         matching = record
         break
     expired_remembered: ApprovalRecord | None = None
-    if identity is not None and identity.mode == "remembered" and _is_expired(identity):
+    if identity is not None and identity.mode == "remembered" and is_expired(identity, now):
         expired_remembered = identity
     return ApprovalDoctorState(
         matching=matching,
         identity=identity,
         expired_remembered=expired_remembered,
     )
-
-
-def approval_evidence_id(record: ApprovalRecord) -> str:
-    """Return a stable, non-secret identifier for an approval record."""
-    digest = hashlib.sha256(
-        f"{record.root}:{record.profile}:{record.approved_at}".encode()
-    ).hexdigest()
-    return f"sha256:{digest[:16]}"
 
 
 def add_approval(
@@ -210,13 +179,11 @@ def add_approval(
     active_policy = policy or load_policy()
     store = load_store()
     root_str = str(ctx.root.resolve())
-    store.approvals = [r for r in store.approvals if not _identity_matches(r, ctx, root_str)]
+    store.approvals = [r for r in store.approvals if not identity_matches(r, ctx, root_str)]
     expires_at = None
     if mode == "remembered":
-        expires_at = (
-            datetime.now(tz=UTC) + timedelta(days=active_policy.approval_ttl_days)
-        ).isoformat()
-    record = ApprovalRecord(
+        expires_at = (_now_utc() + timedelta(days=active_policy.approval_ttl_days)).isoformat()
+    record = build_approval_record(
         root=root_str,
         profile=ctx.profile_name,
         project=ctx.project,
@@ -224,10 +191,9 @@ def add_approval(
         config_sha256=ctx.config_sha256,
         approved_at=utc_now_iso(),
         mode=mode,
-        schema_version=APPROVAL_SCHEMA_V2,
+        expires_at=expires_at,
         gcloud_path=gcloud_trust.path if gcloud_trust else None,
         gcloud_sha256=gcloud_trust.sha256 if gcloud_trust else None,
-        expires_at=expires_at,
     )
     store.approvals.append(record)
     save_store(store)
@@ -246,7 +212,7 @@ def revoke_approval(ctx: ResolvedProjectContext) -> bool:
     store = load_store()
     root_str = str(ctx.root.resolve())
     before = len(store.approvals)
-    store.approvals = [r for r in store.approvals if not _identity_matches(r, ctx, root_str)]
+    store.approvals = [r for r in store.approvals if not identity_matches(r, ctx, root_str)]
     if len(store.approvals) == before:
         return False
     save_store(store)
@@ -254,22 +220,12 @@ def revoke_approval(ctx: ResolvedProjectContext) -> bool:
     return True
 
 
-def _record_matches_once(record: ApprovalRecord, other: ApprovalRecord) -> bool:
-    return (
-        other.root == record.root
-        and other.profile == record.profile
-        and other.project == record.project
-        and other.service_account == record.service_account
-        and other.config_sha256 == record.config_sha256
-    )
-
-
 def consume_once_approval(record: ApprovalRecord) -> None:
     """Remove a once-mode approval after use."""
     if record.mode != "once":
         return
     store = load_store()
-    store.approvals = [r for r in store.approvals if not _record_matches_once(record, r)]
+    store.approvals = [r for r in store.approvals if not record_matches_once(record, r)]
     save_store(store)
 
 
@@ -349,7 +305,7 @@ def prompt_for_approval(  # noqa: C901, PLR0912
     if git_branch:
         console.print(f"Git branch:       {git_branch}")
     if active_policy.approval_ttl_days:
-        expiry = (datetime.now(tz=UTC) + timedelta(days=active_policy.approval_ttl_days)).date()
+        expiry = (_now_utc() + timedelta(days=active_policy.approval_ttl_days)).date()
         console.print(f"Remember until:   {expiry} ({active_policy.approval_ttl_days} days)")
     console.print("\nApprove this directory/profile/service-account binding?\n")
     console.print("[A] Approve once  [R] Remember approval  [D] Deny")

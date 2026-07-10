@@ -11,26 +11,25 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Deterministic context ID derivation."""
+"""Deterministic context ID derivation (pure; caller supplies resolved root)."""
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-from gcpctx.core import identity as core_identity
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-SCHEMA_VERSION = core_identity.SCHEMA_VERSION
+SCHEMA_VERSION = "schema-v1"
 
 
 @dataclass(frozen=True)
 class ContextIdInput:
-    """Inputs for context ID derivation (Path root for backward compatibility)."""
+    """Inputs for context ID derivation.
 
-    root: Path
+    ``root`` must already be a resolved absolute path string; this module does
+    not call ``Path.resolve()``.
+    """
+
+    root: str
     profile: str
     project: str
     service_account: str
@@ -39,12 +38,14 @@ class ContextIdInput:
 
 def derive_context_id(input_: ContextIdInput) -> str:
     """Return deterministic 24-char hex context ID."""
-    return core_identity.derive_context_id(
-        core_identity.ContextIdInput(
-            root=str(input_.root.resolve()),
-            profile=input_.profile,
-            project=input_.project,
-            service_account=input_.service_account,
-            config_sha256=input_.config_sha256,
-        )
+    payload = "\0".join(
+        [
+            input_.root,
+            input_.profile,
+            input_.project,
+            input_.service_account,
+            input_.config_sha256,
+            SCHEMA_VERSION,
+        ]
     )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]

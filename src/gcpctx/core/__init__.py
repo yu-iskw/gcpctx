@@ -11,22 +11,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Stable doctor check registry for gcpctx v0.3+."""
-
-from __future__ import annotations
-
-from gcpctx.core.contract import (
-    ACTIVATE_SHELL_REMEDIATION,
-    DOCTOR_CHECK_IDS,
-    DOCTOR_CHECK_REGISTRY,
-    DoctorCheckSpec,
-    check_exit_code,
-)
-
-__all__ = [
-    "ACTIVATE_SHELL_REMEDIATION",
-    "DOCTOR_CHECK_IDS",
-    "DOCTOR_CHECK_REGISTRY",
-    "DoctorCheckSpec",
-    "check_exit_code",
-]
+"""Pure core: no I/O, subprocess, or environment reads."""
