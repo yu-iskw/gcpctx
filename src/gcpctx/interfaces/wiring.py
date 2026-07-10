@@ -23,7 +23,6 @@ from gcpctx.adapters.system import (
     NullPrompter,
     OsEnvPort,
     RichPrompter,
-    SystemClock,
 )
 from gcpctx.services.engine import Engine
 
@@ -38,6 +37,5 @@ def default_engine(*, interactive: bool) -> Engine:
         gcloud=SubprocessGcloudPort(),
         env=OsEnvPort(),
         audit=FileAuditSink(),
-        clock=SystemClock(),
         prompter=prompter,
     )

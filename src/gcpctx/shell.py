@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from gcpctx.core.plan import SHELL_BACKUP_VARS
+
 if TYPE_CHECKING:
     from gcpctx.models import ActivationResult
 
@@ -44,10 +46,7 @@ def shell_quote(value: str) -> str:
 
 
 def _render_activate(result: ActivationResult) -> str:
-    lines: list[str] = [
-        "export GCPCTX_PREV_CLOUDSDK_CONFIG=${CLOUDSDK_CONFIG-}",
-        ("export GCPCTX_PREV_GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS-}"),
-    ]
+    lines: list[str] = [f"export GCPCTX_PREV_{var}=${{{var}-}}" for var in SHELL_BACKUP_VARS]
     lines.extend(f"export {key}={shell_quote(value)}" for key, value in result.exports.items())
     lines.extend(f"unset {key}" for key in result.unsets)
     return "\n".join(lines)

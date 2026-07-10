@@ -26,6 +26,7 @@ from gcpctx.core.model import (
     DoctorResult,
     GcpctxConfig,
     ProfileConfig,
+    build_missing_config_result,
 )
 
 __all__ = [
@@ -39,4 +40,5 @@ __all__ = [
     "DoctorResult",
     "GcpctxConfig",
     "ProfileConfig",
+    "build_missing_config_result",
 ]

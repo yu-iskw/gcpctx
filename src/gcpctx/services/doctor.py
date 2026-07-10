@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gcpctx import gcloud as gcloud_mod, paths
+from gcpctx.adapters.gcloud import SubprocessGcloudPort
 from gcpctx.adapters.system import OsEnvPort
 from gcpctx.core.checks.evaluators import evaluate_all
 from gcpctx.core.checks.report import findings_to_result
@@ -43,7 +44,7 @@ from gcpctx.version import __version__
 if TYPE_CHECKING:
     from gcpctx.gcloud_trust import GcloudTrustResult
     from gcpctx.models import ApprovalRecord, DoctorResult
-    from gcpctx.ports import EnvPort
+    from gcpctx.ports import EnvPort, GcloudPort
     from gcpctx.project_context import ResolvedProjectContext
 
 
@@ -101,41 +102,22 @@ def _gather_trust(
     cwd: Path,
     policy: SecurityPolicy,
     effective_strict: bool,
+    configured_path: str | None = None,
 ) -> tuple[GcloudTrustResult | None, str | None]:
     try:
-        return resolve_trusted_gcloud(cwd, policy=policy, strict=effective_strict), None
-    except GcpctxError as exc:
-        return None, str(exc)
-
-
-def _probe_impersonation_iam(
-    config_path: Path,
-    service_account: str,
-    gcloud_executable: str,
-) -> tuple[bool | None, bool, str | None]:
-    """Return (ok, skipped_adc, error_message)."""
-    if not gcloud_mod.adc_exists(config_path):
-        return None, True, None
-    try:
-        gcloud_mod.run_gcloud(
-            [
-                "auth",
-                "print-access-token",
-                "--impersonate-service-account",
-                service_account,
-            ],
-            cloudsdk_config=config_path,
-            gcloud_executable=gcloud_executable,
+        return (
+            resolve_trusted_gcloud(
+                cwd, policy=policy, strict=effective_strict, configured_path=configured_path
+            ),
+            None,
         )
     except GcpctxError as exc:
-        return False, False, f"IAM impersonation probe failed: {exc}"
-    return True, False, None
+        return None, str(exc)
 
 
 def _partial_snapshot(  # noqa: PLR0913
     *,
     interactive: bool,
-    strict: bool,
     effective_strict: bool,
     cache_root: str,
     cwd_str: str,
@@ -149,7 +131,6 @@ def _partial_snapshot(  # noqa: PLR0913
 ) -> DoctorSnapshot:
     return DoctorSnapshot(
         interactive=interactive,
-        strict=strict,
         effective_strict=effective_strict,
         cache_root=cache_root,
         cwd_str=cwd_str,
@@ -160,26 +141,26 @@ def _partial_snapshot(  # noqa: PLR0913
         config_error_exit_code=config_error_exit_code,
         deprecated_global_gcloud_path=deprecated,
         gcloud_trust_path=trust.path if trust else None,
-        gcloud_trust_sha256=trust.sha256 if trust else None,
         gcloud_trust_warnings=trust.warnings if trust else (),
         gcloud_trust_error=trust_error,
     )
 
 
-def gather_snapshot(  # noqa: PLR0911
+def gather_snapshot(  # noqa: PLR0911,PLR0913
     cwd: Path,
     *,
     profile: str | None = None,
     strict: bool = False,
     interactive: bool | None = None,
     env: EnvPort | None = None,
+    gcloud: GcloudPort | None = None,
 ) -> DoctorSnapshot:
     """Probe filesystem/env and return a frozen DoctorSnapshot.
 
-    Gcloud probes still use the flat ``gcloud`` / ``gcloud_trust`` modules
-    (strangler); inject ``EnvPort`` for environment reads.
+    Inject ``EnvPort`` or ``GcloudPort`` for testing; defaults to live adapters.
     """
     env_port = env or OsEnvPort()
+    gcloud_port = gcloud or SubprocessGcloudPort()
     is_interactive = sys.stdin.isatty() if interactive is None else interactive
     cwd_str = str(cwd.resolve())
     cache_root = str(paths.user_cache_path().resolve())
@@ -189,7 +170,6 @@ def gather_snapshot(  # noqa: PLR0911
     except GcpctxError as exc:
         return DoctorSnapshot(
             interactive=is_interactive,
-            strict=strict,
             effective_strict=strict,
             cache_root=cache_root,
             cwd_str=cwd_str,
@@ -199,14 +179,15 @@ def gather_snapshot(  # noqa: PLR0911
 
     effective_strict = strict or policy.strict
     deprecated = deprecated_global_gcloud_path()
-    trust, trust_error = _gather_trust(cwd, policy, effective_strict)
 
+    # Resolve project context first so we can pass configured_path to trust
+    # resolution, avoiding a redundant config read in the happy path.
     try:
         ctx = resolve_project_context(cwd, profile, policy=policy)
     except ConfigNotFoundError:
+        trust, trust_error = _gather_trust(cwd, policy, effective_strict)
         return _partial_snapshot(
             interactive=is_interactive,
-            strict=strict,
             effective_strict=effective_strict,
             cache_root=cache_root,
             cwd_str=cwd_str,
@@ -217,9 +198,9 @@ def gather_snapshot(  # noqa: PLR0911
             trust_error=trust_error,
         )
     except ConfigValidationError as exc:
+        trust, trust_error = _gather_trust(cwd, policy, effective_strict)
         return _partial_snapshot(
             interactive=is_interactive,
-            strict=strict,
             effective_strict=effective_strict,
             cache_root=cache_root,
             cwd_str=cwd_str,
@@ -232,9 +213,9 @@ def gather_snapshot(  # noqa: PLR0911
             trust_error=trust_error,
         )
     except GcpctxError as exc:
+        trust, trust_error = _gather_trust(cwd, policy, effective_strict)
         return _partial_snapshot(
             interactive=is_interactive,
-            strict=strict,
             effective_strict=effective_strict,
             cache_root=cache_root,
             cwd_str=cwd_str,
@@ -246,34 +227,35 @@ def gather_snapshot(  # noqa: PLR0911
             trust_error=trust_error,
         )
 
+    trust, trust_error = _gather_trust(cwd, policy, effective_strict, ctx.gcloud_path)
     return _gather_resolved_snapshot(
         ctx,
         policy=policy,
         trust=trust,
         trust_error=trust_error,
         interactive=is_interactive,
-        strict=strict,
         effective_strict=effective_strict,
         cache_root=cache_root,
         cwd_str=cwd_str,
         deprecated=deprecated,
         env_port=env_port,
+        gcloud_port=gcloud_port,
     )
 
 
-def _gather_resolved_snapshot(  # noqa: PLR0913
+def _gather_resolved_snapshot(  # noqa: PLR0912,PLR0913
     ctx: ResolvedProjectContext,
     *,
     policy: SecurityPolicy,
     trust: GcloudTrustResult | None,
     trust_error: str | None,
     interactive: bool,
-    strict: bool,
     effective_strict: bool,
     cache_root: str,
     cwd_str: str,
     deprecated: str | None,
     env_port: EnvPort,
+    gcloud_port: GcloudPort,
 ) -> DoctorSnapshot:
     check_policy = _strict_policy_for_checks(policy, effective_strict)
     approval_state = resolve_approval_doctor_state(ctx, policy=check_policy, gcloud_trust=trust)
@@ -308,11 +290,17 @@ def _gather_resolved_snapshot(  # noqa: PLR0913
             "auth/impersonate_service_account",
             gcloud_executable=trust.path,
         )
-        adc_exists = gcloud_mod.adc_exists(expected_raw)
+        adc_exists = gcloud_port.adc_exists(expected_raw)
         if effective_strict:
-            iam_ok, iam_skipped, iam_error = _probe_impersonation_iam(
-                expected_raw, ctx.service_account, trust.path
-            )
+            if not adc_exists:
+                iam_skipped = True
+            else:
+                probe_ok = gcloud_port.probe_impersonation(
+                    expected_raw, ctx.service_account, gcloud_executable=trust.path
+                )
+                iam_ok = probe_ok
+                if not probe_ok:
+                    iam_error = "IAM impersonation probe failed"
 
     if effective_strict:
         state_issues, state_path = _gather_state_permissions()
@@ -320,7 +308,6 @@ def _gather_resolved_snapshot(  # noqa: PLR0913
 
     return DoctorSnapshot(
         interactive=interactive,
-        strict=strict,
         effective_strict=effective_strict,
         cache_root=cache_root,
         cwd_str=cwd_str,
@@ -343,7 +330,6 @@ def _gather_resolved_snapshot(  # noqa: PLR0913
         approval_identity=_approval_facts(approval_state.identity),
         approval_expired=_approval_facts(approval_state.expired_remembered),
         gcloud_trust_path=trust.path if trust else None,
-        gcloud_trust_sha256=trust.sha256 if trust else None,
         gcloud_trust_warnings=trust.warnings if trust else (),
         gcloud_trust_error=trust_error,
         gcloud_project_property=gcloud_project_property,
@@ -386,7 +372,7 @@ def _approval_status(root: Path, info: dict[str, str]) -> str:
     try:
         policy = load_policy()
         ctx = resolve_project_context(root, info.get("profile"), policy=policy)
-        trust = resolve_trusted_gcloud(root, policy=policy)
+        trust = resolve_trusted_gcloud(root, policy=policy, configured_path=ctx.gcloud_path)
         approval = find_matching_approval(ctx, policy=policy, gcloud_trust=trust)
     except GcpctxError:
         return "unknown"

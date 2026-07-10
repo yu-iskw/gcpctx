@@ -25,7 +25,7 @@ from gcpctx.errors import ApprovalRequiredError, ConfigNotFoundError
 from gcpctx.models import ActivationRequest
 from gcpctx.project_context import resolve_project_context
 from gcpctx.services.engine import Engine
-from gcpctx.tests.fakes import FakeAuditSink, FakeClock, FakeEnv, FakeGcloudPort, FakePrompter
+from gcpctx.tests.fakes import FakeAuditSink, FakeEnv, FakeGcloudPort, FakePrompter
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -47,7 +47,6 @@ def _engine(
         gcloud=port,
         env=fake_env,
         audit=sink,
-        clock=FakeClock(),
         prompter=prompter,
     )
     return engine, port, sink, fake_env

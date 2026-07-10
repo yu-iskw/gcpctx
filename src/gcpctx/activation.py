@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from gcpctx.models import ActivationResult
+from gcpctx.models import ActivationResult, build_missing_config_result
 
 if TYPE_CHECKING:
     from gcpctx.models import ActivationRequest
@@ -26,9 +26,7 @@ if TYPE_CHECKING:
 
 def missing_config_result() -> ActivationResult:
     """When no .gcpctx.toml: deactivate if active, else emit no-op shell code."""
-    if os.environ.get("GCPCTX_ACTIVE") == "1":
-        return ActivationResult(active=False, readiness="blocked")
-    return ActivationResult(active=False, noop=True, readiness="blocked")
+    return build_missing_config_result(gcpctx_active=os.environ.get("GCPCTX_ACTIVE"))
 
 
 def activate(request: ActivationRequest) -> ActivationResult:

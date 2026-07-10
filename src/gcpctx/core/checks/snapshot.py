@@ -50,7 +50,6 @@ class DoctorSnapshot:
     """All facts doctor checks need; gathered via ports/I/O, judged purely."""
 
     interactive: bool
-    strict: bool
     effective_strict: bool
     cache_root: str
     policy: SecurityPolicy | None = None
@@ -78,7 +77,6 @@ class DoctorSnapshot:
     approval_identity: ApprovalFacts | None = None
     approval_expired: ApprovalFacts | None = None
     gcloud_trust_path: str | None = None
-    gcloud_trust_sha256: str | None = None
     gcloud_trust_warnings: tuple[str, ...] = ()
     gcloud_trust_error: str | None = None
     gcloud_project_property: str | None = None

@@ -148,3 +148,10 @@ class DoctorResult(BaseModel):
 # Postponed annotations (PEP 563) require rebuild before runtime Path validation.
 ActivationRequest.model_rebuild()
 ActivationResult.model_rebuild()
+
+
+def build_missing_config_result(*, gcpctx_active: str | None) -> ActivationResult:
+    """Pure helper: return the correct no-config result given the GCPCTX_ACTIVE value."""
+    if gcpctx_active == "1":
+        return ActivationResult(active=False, readiness="blocked")
+    return ActivationResult(active=False, noop=True, readiness="blocked")

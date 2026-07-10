@@ -37,7 +37,7 @@ from gcpctx.errors import (
     GcpctxError,
 )
 from gcpctx.gcloud import InitContext
-from gcpctx.models import ActivationResult
+from gcpctx.models import ActivationResult, build_missing_config_result
 from gcpctx.policy import load_policy
 from gcpctx.project_context import resolve_project_context
 from gcpctx.services.approvals import (
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from gcpctx.gcloud_trust import GcloudTrustResult
     from gcpctx.models import ActivationRequest, ApprovalRecord
     from gcpctx.policy import SecurityPolicy
-    from gcpctx.ports import AuditSink, Clock, EnvPort, GcloudPort, Prompter
+    from gcpctx.ports import AuditSink, EnvPort, GcloudPort, Prompter
     from gcpctx.project_context import ResolvedProjectContext
 
 
@@ -76,13 +76,11 @@ class Engine:
         gcloud: GcloudPort,
         env: EnvPort,
         audit: AuditSink,
-        clock: Clock,
         prompter: Prompter | None = None,
     ) -> None:
         self._gcloud = gcloud
         self._env = env
         self._audit = audit
-        self._clock = clock
         self._prompter = prompter
 
     def resolve(self, cwd: Path, profile: str | None = None) -> Resolution:
@@ -122,7 +120,6 @@ class Engine:
             profile_env=dict(ctx.profile.env),
             region=ctx.profile.region,
             zone=ctx.profile.zone,
-            quota_project=ctx.profile.quota_project,
             approval_present=res.approval is not None,
             hook_mode=request.hook_mode,
             run_mode=request.run_mode,
@@ -176,9 +173,7 @@ class Engine:
 
     def missing_config_result(self) -> ActivationResult:
         """When no .gcpctx.toml: deactivate if active, else emit no-op shell code."""
-        if self._env.get("GCPCTX_ACTIVE") == "1":
-            return ActivationResult(active=False, readiness="blocked")
-        return ActivationResult(active=False, noop=True, readiness="blocked")
+        return build_missing_config_result(gcpctx_active=self._env.get("GCPCTX_ACTIVE"))
 
     def _prompt_and_replan(
         self,

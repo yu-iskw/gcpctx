@@ -141,7 +141,6 @@ class ActivationFacts:
     profile_env: dict[str, str]
     region: str | None = None
     zone: str | None = None
-    quota_project: str | None = None
     approval_present: bool = False
     hook_mode: bool = False
     run_mode: bool = False
@@ -234,19 +233,21 @@ def build_init_steps(  # noqa: PLR0913  # pylint: disable=too-many-arguments
     return tuple(steps)
 
 
+def _identity_kwargs(facts: ActivationFacts) -> dict[str, str | None]:
+    """Return the shared Plan identity fields from activation facts."""
+    return {
+        "root": facts.root_str,
+        "profile": facts.profile_name,
+        "project": facts.project,
+        "service_account": facts.service_account,
+        "context_id": facts.context_id,
+        "cloudsdk_config": facts.cloudsdk_config,
+        "config_sha256": facts.config_sha256,
+    }
+
+
 def _denied(facts: ActivationFacts, denial: Denial) -> Plan:
-    return Plan(
-        denial=denial,
-        active=False,
-        readiness="blocked",
-        root=facts.root_str,
-        profile=facts.profile_name,
-        project=facts.project,
-        service_account=facts.service_account,
-        context_id=facts.context_id,
-        cloudsdk_config=facts.cloudsdk_config,
-        config_sha256=facts.config_sha256,
-    )
+    return Plan(denial=denial, active=False, readiness="blocked", **_identity_kwargs(facts))  # type: ignore[arg-type]
 
 
 def _approved_not_initialized(facts: ActivationFacts, warnings: tuple[str, ...]) -> Plan:
@@ -256,13 +257,7 @@ def _approved_not_initialized(facts: ActivationFacts, warnings: tuple[str, ...])
         readiness="approved_not_initialized",
         warnings=(*warnings, ADC_NOT_READY_WARNING),
         active=False,
-        root=facts.root_str,
-        profile=facts.profile_name,
-        project=facts.project,
-        service_account=facts.service_account,
-        context_id=facts.context_id,
-        cloudsdk_config=facts.cloudsdk_config,
-        config_sha256=facts.config_sha256,
+        **_identity_kwargs(facts),  # type: ignore[arg-type]
     )
 
 
@@ -286,21 +281,11 @@ def _ready_plan(
     )
     return Plan(
         steps=steps,
-        env_delta=EnvDelta(
-            exports=exports,
-            unsets=unsets,
-            backups=SHELL_BACKUP_VARS,
-        ),
+        env_delta=EnvDelta(exports=exports, unsets=unsets, backups=SHELL_BACKUP_VARS),
         readiness="ready",
         warnings=warnings,
         active=True,
-        root=facts.root_str,
-        profile=facts.profile_name,
-        project=facts.project,
-        service_account=facts.service_account,
-        context_id=facts.context_id,
-        cloudsdk_config=facts.cloudsdk_config,
-        config_sha256=facts.config_sha256,
+        **_identity_kwargs(facts),  # type: ignore[arg-type]
     )
 
 

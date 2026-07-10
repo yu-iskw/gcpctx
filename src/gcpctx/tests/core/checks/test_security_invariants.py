@@ -47,7 +47,6 @@ from gcpctx.core.policy import SecurityPolicy
 def _snapshot(**overrides: object) -> DoctorSnapshot:
     base: dict[str, object] = {
         "interactive": False,
-        "strict": False,
         "effective_strict": False,
         "cache_root": "/cache/gcpctx",
         "cwd_str": "/repo",

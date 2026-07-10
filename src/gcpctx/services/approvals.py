@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Literal
 
 from gcpctx.adapters.state import FilesystemStateStore
 from gcpctx.adapters.system import RichPrompter
-from gcpctx.config import service_account_project
 from gcpctx.core.approval_rules import (
     APPROVAL_SCHEMA_V2,
     ApprovalRecordInput,
@@ -34,6 +33,7 @@ from gcpctx.core.approval_rules import (
     record_matches,
     record_matches_once,
 )
+from gcpctx.core.config import service_account_project
 from gcpctx.errors import ApprovalRequiredError
 from gcpctx.models import ApprovalRecord, ApprovalsStore
 from gcpctx.policy import SecurityPolicy, load_policy
@@ -59,8 +59,6 @@ __all__ = [
     "add_approval",
     "approval_evidence_id",
     "consume_once_approval",
-    "find_expired_remembered_approval",
-    "find_identity_approval",
     "find_matching_approval",
     "load_store",
     "prompt_for_approval",
@@ -114,26 +112,6 @@ def find_matching_approval(
             continue
         return record
     return None
-
-
-def find_identity_approval(ctx: ResolvedProjectContext) -> ApprovalRecord | None:
-    """Return the newest identity-matching approval regardless of expiry or gcloud binding."""
-    store = load_store()
-    root_str = str(ctx.root.resolve())
-    matches = [r for r in store.approvals if identity_matches(r, ctx, root_str)]
-    if not matches:
-        return None
-    return max(matches, key=lambda record: record.approved_at)
-
-
-def find_expired_remembered_approval(ctx: ResolvedProjectContext) -> ApprovalRecord | None:
-    """Return a remembered approval that matches identity but has expired."""
-    record = find_identity_approval(ctx)
-    if record is None or record.mode != "remembered":
-        return None
-    if not is_expired(record, _now_utc()):
-        return None
-    return record
 
 
 @dataclass(frozen=True, slots=True)

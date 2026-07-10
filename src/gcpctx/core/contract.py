@@ -38,7 +38,7 @@ class ExitCode(IntEnum):
 STATUS_JSON_VERSION = "status.v1"
 DOCTOR_JSON_VERSION = "doctor.v1"
 
-# Activation export env names (see activation._build_exports).
+# Activation export env names (see core.plan.build_exports).
 GCPCTX_ACTIVE = "GCPCTX_ACTIVE"
 GCPCTX_ROOT = "GCPCTX_ROOT"
 GCPCTX_PROFILE = "GCPCTX_PROFILE"
