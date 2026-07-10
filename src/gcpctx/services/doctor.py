@@ -41,7 +41,7 @@ from gcpctx.settings import deprecated_global_gcloud_path
 if TYPE_CHECKING:
     from gcpctx.gcloud_trust import GcloudTrustResult
     from gcpctx.models import ApprovalRecord, DoctorResult
-    from gcpctx.ports import AuditSink, EnvPort, GcloudPort
+    from gcpctx.ports import EnvPort
     from gcpctx.project_context import ResolvedProjectContext
 
 
@@ -164,18 +164,19 @@ def _partial_snapshot(  # noqa: PLR0913
     )
 
 
-def gather_snapshot(  # noqa: PLR0911, PLR0913
+def gather_snapshot(  # noqa: PLR0911
     cwd: Path,
     *,
     profile: str | None = None,
     strict: bool = False,
     interactive: bool | None = None,
-    gcloud: GcloudPort | None = None,
     env: EnvPort | None = None,
-    audit_sink: AuditSink | None = None,
 ) -> DoctorSnapshot:
-    """Probe ports/filesystem and return a frozen DoctorSnapshot."""
-    del gcloud, audit_sink
+    """Probe filesystem/env and return a frozen DoctorSnapshot.
+
+    Gcloud probes still use the flat ``gcloud`` / ``gcloud_trust`` modules
+    (strangler); inject ``EnvPort`` for environment reads.
+    """
     env_port = env or OsEnvPort()
     is_interactive = sys.stdin.isatty() if interactive is None else interactive
     cwd_str = str(cwd.resolve())
