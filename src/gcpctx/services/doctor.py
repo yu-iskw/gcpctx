@@ -20,7 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from gcpctx import __version__, audit, gcloud as gcloud_mod, paths
+from gcpctx import audit, gcloud as gcloud_mod, paths
 from gcpctx.adapters.system import OsEnvPort
 from gcpctx.approvals import (
     approval_evidence_id,
@@ -37,6 +37,7 @@ from gcpctx.policy import SecurityPolicy, load_policy
 from gcpctx.project_context import resolve_project_context
 from gcpctx.security import check_path_permissions, reject_symlink
 from gcpctx.settings import deprecated_global_gcloud_path
+from gcpctx.version import __version__
 
 if TYPE_CHECKING:
     from gcpctx.gcloud_trust import GcloudTrustResult

@@ -11,24 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""ShellRenderer wrapping the existing shell.render_shell emitter."""
+"""Package version (importable without loading CLI/activation)."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
-
-from gcpctx.shell import render_shell
-
-if TYPE_CHECKING:
-    from gcpctx.models import ActivationResult
-    from gcpctx.shell import ShellName
-
-
-class SharedShellRenderer:
-    """bash/zsh share one render path today; shell name is still validated."""
-
-    def render(self, result: ActivationResult, shell: str) -> str:
-        if shell in {"bash", "zsh"}:
-            return render_shell(result, cast("ShellName", shell))
-        msg = f"unsupported shell: {shell}"
-        raise ValueError(msg)
+__version__ = "0.5.0"

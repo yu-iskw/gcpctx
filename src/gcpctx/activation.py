@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from gcpctx.interfaces.wiring import default_engine
 from gcpctx.models import ActivationResult
 
 if TYPE_CHECKING:
@@ -34,6 +33,9 @@ def missing_config_result() -> ActivationResult:
 
 def activate(request: ActivationRequest) -> ActivationResult:
     """Activate gcpctx for the given request."""
+    # Deferred import: package __init__ loads activation; wiring imports Engine.
+    from gcpctx.interfaces.wiring import default_engine  # noqa: PLC0415
+
     engine = default_engine(interactive=request.interactive)
     return engine.activate(request)
 
