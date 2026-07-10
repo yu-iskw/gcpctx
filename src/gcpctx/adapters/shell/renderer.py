@@ -17,10 +17,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from gcpctx.shell import ShellName, render_shell
+from gcpctx.shell import render_shell
 
 if TYPE_CHECKING:
     from gcpctx.models import ActivationResult
+    from gcpctx.shell import ShellName
 
 
 class SharedShellRenderer:

@@ -71,7 +71,7 @@ def test_exit_code_values_frozen() -> None:
 
 
 def test_doctor_check_ids_frozen() -> None:
-    assert DOCTOR_CHECK_IDS == frozenset(_DOCTOR_EXIT_CODE_SNAPSHOT)
+    assert frozenset(_DOCTOR_EXIT_CODE_SNAPSHOT) == DOCTOR_CHECK_IDS
 
 
 def test_doctor_check_exit_codes_frozen() -> None:

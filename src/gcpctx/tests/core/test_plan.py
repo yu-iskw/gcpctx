@@ -179,7 +179,7 @@ def test_denial_without_approval() -> None:
     assert plan.denial.exit_code == int(ExitCode.APPROVAL_REQUIRED)
     assert plan.denial.message == APPROVAL_REQUIRED_MESSAGE
     assert plan.active is False
-    assert plan.steps == ()
+    assert not plan.steps
 
 
 def test_hook_adc_readiness_preserves_once_approval() -> None:
@@ -196,7 +196,7 @@ def test_hook_adc_readiness_preserves_once_approval() -> None:
     assert plan.readiness == "approved_not_initialized"
     assert ADC_NOT_READY_WARNING in plan.warnings
     assert not any(isinstance(step, ConsumeOnceApproval) for step in plan.steps)
-    assert plan.env_delta.exports == {}
+    assert not plan.env_delta.exports
 
 
 def test_ready_plan_includes_consume_and_exports() -> None:

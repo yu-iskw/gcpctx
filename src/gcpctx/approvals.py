@@ -27,6 +27,7 @@ from gcpctx.adapters.system import NullPrompter, RichPrompter
 from gcpctx.config import service_account_project
 from gcpctx.core.approval_rules import (
     APPROVAL_SCHEMA_V2,
+    ApprovalRecordInput,
     approval_evidence_id,
     build_approval_record,
     identity_matches,
@@ -190,16 +191,18 @@ def add_approval(
     if mode == "remembered":
         expires_at = (_now_utc() + timedelta(days=active_policy.approval_ttl_days)).isoformat()
     record = build_approval_record(
-        root=root_str,
-        profile=ctx.profile_name,
-        project=ctx.project,
-        service_account=ctx.service_account,
-        config_sha256=ctx.config_sha256,
-        approved_at=utc_now_iso(),
-        mode=mode,
-        expires_at=expires_at,
-        gcloud_path=gcloud_trust.path if gcloud_trust else None,
-        gcloud_sha256=gcloud_trust.sha256 if gcloud_trust else None,
+        ApprovalRecordInput(
+            root=root_str,
+            profile=ctx.profile_name,
+            project=ctx.project,
+            service_account=ctx.service_account,
+            config_sha256=ctx.config_sha256,
+            approved_at=utc_now_iso(),
+            mode=mode,
+            expires_at=expires_at,
+            gcloud_path=gcloud_trust.path if gcloud_trust else None,
+            gcloud_sha256=gcloud_trust.sha256 if gcloud_trust else None,
+        )
     )
     store.approvals.append(record)
     save_store(store)

@@ -83,7 +83,8 @@ class RichPrompter:
         if request.quota_project:
             console.print(f"Quota project:    {request.quota_project}")
         if request.env_keys:
-            console.print(f"Env overrides:    {', '.join(request.env_keys)}")
+            env_keys = ", ".join(request.env_keys)
+            console.print(f"Env overrides:    {env_keys}")
         if request.gcloud_path is not None:
             fp = request.gcloud_sha256[:12] if request.gcloud_sha256 else "unavailable"
             console.print(f"gcloud path:      {request.gcloud_path}")

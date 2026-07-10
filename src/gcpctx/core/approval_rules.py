@@ -16,11 +16,14 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from gcpctx.core.model import ApprovalRecord
-from gcpctx.core.policy import SecurityPolicy
+
+if TYPE_CHECKING:
+    from gcpctx.core.policy import SecurityPolicy
 
 ApprovalMode = Literal["once", "remembered"]
 APPROVAL_SCHEMA_V2 = 2
@@ -45,8 +48,28 @@ class ApprovalIdentity(Protocol):
 class GcloudTrustInfo(Protocol):
     """Minimal gcloud trust fields for approval binding checks."""
 
-    path: str
-    sha256: str | None
+    @property
+    def path(self) -> str: ...
+
+    @property
+    def sha256(self) -> str | None: ...
+
+
+@dataclass(frozen=True)
+class ApprovalRecordInput:
+    """Inputs for constructing an ApprovalRecord."""
+
+    root: str
+    profile: str
+    project: str
+    service_account: str
+    config_sha256: str
+    approved_at: str
+    mode: ApprovalMode
+    expires_at: str | None = None
+    gcloud_path: str | None = None
+    gcloud_sha256: str | None = None
+    gcloud_version: str | None = None
 
 
 def identity_matches(
@@ -71,17 +94,13 @@ def _gcloud_binding_matches(
 ) -> bool:
     if not policy.require_gcloud_path_approval:
         return True
-    if gcloud_trust is None:
+    if gcloud_trust is None or record.gcloud_path != gcloud_trust.path:
         return False
-    if record.gcloud_path != gcloud_trust.path:
-        return False
-    if (
+    return not (
         record.gcloud_sha256 is not None
         and gcloud_trust.sha256 is not None
         and record.gcloud_sha256 != gcloud_trust.sha256
-    ):
-        return False
-    return True
+    )
 
 
 def record_matches(
@@ -132,32 +151,19 @@ def approval_evidence_id(record: ApprovalRecord) -> str:
     return f"sha256:{digest[:16]}"
 
 
-def build_approval_record(
-    *,
-    root: str,
-    profile: str,
-    project: str,
-    service_account: str,
-    config_sha256: str,
-    approved_at: str,
-    mode: ApprovalMode,
-    expires_at: str | None = None,
-    gcloud_path: str | None = None,
-    gcloud_sha256: str | None = None,
-    gcloud_version: str | None = None,
-) -> ApprovalRecord:
+def build_approval_record(inp: ApprovalRecordInput) -> ApprovalRecord:
     """Construct an ApprovalRecord (caller supplies timestamps)."""
     return ApprovalRecord(
-        root=root,
-        profile=profile,
-        project=project,
-        service_account=service_account,
-        config_sha256=config_sha256,
-        approved_at=approved_at,
-        mode=mode,
+        root=inp.root,
+        profile=inp.profile,
+        project=inp.project,
+        service_account=inp.service_account,
+        config_sha256=inp.config_sha256,
+        approved_at=inp.approved_at,
+        mode=inp.mode,
         schema_version=APPROVAL_SCHEMA_V2,
-        gcloud_path=gcloud_path,
-        gcloud_sha256=gcloud_sha256,
-        gcloud_version=gcloud_version,
-        expires_at=expires_at,
+        gcloud_path=inp.gcloud_path,
+        gcloud_sha256=inp.gcloud_sha256,
+        gcloud_version=inp.gcloud_version,
+        expires_at=inp.expires_at,
     )

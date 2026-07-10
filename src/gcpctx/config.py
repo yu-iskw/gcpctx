@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import tomli_w
 
@@ -31,8 +32,6 @@ from gcpctx.core.config import (
     service_account_project,
     validate_init_project_inputs,
 )
-from gcpctx.core.model import GcpctxConfig
-from gcpctx.core.policy import SecurityPolicy
 from gcpctx.discovery import config_path
 from gcpctx.errors import ConfigValidationError
 from gcpctx.policy import load_policy
@@ -42,6 +41,10 @@ from gcpctx.security import (
     reject_symlink,
     secure_read_text,
 )
+
+if TYPE_CHECKING:
+    from gcpctx.core.model import GcpctxConfig
+    from gcpctx.core.policy import SecurityPolicy
 
 __all__ = [
     "ALLOWED_ENV_KEYS",

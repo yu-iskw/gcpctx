@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, cast
 
 from gcpctx.errors import ApprovalRequiredError
 from gcpctx.gcloud_trust import GcloudTrustResult
-from gcpctx.ports import ApprovalAnswer, ApprovalDecision, ApprovalRequest
+from gcpctx.ports import ApprovalAnswer, ApprovalRequest
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from gcpctx.gcloud import InitContext
     from gcpctx.models import ActivationResult, ContextState
     from gcpctx.policy import SecurityPolicy
+    from gcpctx.ports import ApprovalDecision
 
 
 class FakeStateStore:

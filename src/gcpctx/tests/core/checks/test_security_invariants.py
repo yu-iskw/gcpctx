@@ -16,9 +16,15 @@
 from __future__ import annotations
 
 from gcpctx.core.checks.evaluators import (
+    check_ambient_cloudsdk,
     check_approval,
     check_env_project,
+    check_expected_context,
     check_gac,
+    check_gcloud_project,
+    check_gcloud_trust,
+    check_impersonation,
+    check_state_permissions,
 )
 from gcpctx.core.checks.snapshot import DoctorSnapshot
 from gcpctx.core.contract import ExitCode
@@ -26,6 +32,8 @@ from gcpctx.core.plan import (
     APPROVAL_REQUIRED_MESSAGE,
     GAC_CONFLICT_MESSAGE,
     ActivationFacts,
+    InitImpersonatedAdc,
+    SetGcloudProperty,
     build_activation_plan,
     build_exports,
 )
@@ -119,3 +127,102 @@ def test_env_project_mismatch_exports_win_and_check_fails() -> None:
     assert finding.check_id == "env_project"
     assert finding.evidence["expected"] == "my-dev-project"
     assert finding.evidence["actual"] == "evil-project"
+
+
+def test_isolated_cloudsdk_plan_exports_and_check_fails_outside_cache() -> None:
+    plan = build_activation_plan(_facts())
+    assert plan.denial is None
+    assert plan.env_delta.exports["CLOUDSDK_CONFIG"].endswith("/gcloud")
+
+    finding = check_expected_context(
+        _snapshot(expected_cloudsdk_config="/tmp/evil-gcloud", expected_cloudsdk_invalid=False)
+    )
+    assert finding is not None
+    assert finding.status == "error"
+    assert finding.check_id == "expected_context"
+
+    ambient = check_ambient_cloudsdk(
+        _snapshot(
+            ambient_cloudsdk_config="/home/user/.config/gcloud",
+            expected_cloudsdk_config="/cache/gcpctx/contexts/abc123/gcloud",
+        )
+    )
+    assert ambient is not None
+    assert ambient.status == "error"
+    assert ambient.check_id == "ambient_cloudsdk"
+
+
+def test_impersonation_plan_sets_sa_and_check_fails_on_mismatch() -> None:
+    plan = build_activation_plan(_facts(skip_gcloud_init=False))
+    assert plan.denial is None
+    sa_steps = [
+        step
+        for step in plan.steps
+        if isinstance(step, SetGcloudProperty) and step.key == "auth/impersonate_service_account"
+    ]
+    assert sa_steps
+    assert sa_steps[0].value == "sa@my-dev-project.iam.gserviceaccount.com"
+    assert any(isinstance(step, InitImpersonatedAdc) for step in plan.steps)
+
+    finding = check_impersonation(
+        _snapshot(
+            impersonation_property="other@my-dev-project.iam.gserviceaccount.com",
+            service_account="sa@my-dev-project.iam.gserviceaccount.com",
+            adc_exists=True,
+            gcloud_trust_path="/usr/bin/gcloud",
+        )
+    )
+    assert finding is not None
+    assert finding.status == "error"
+    assert finding.check_id == "impersonation"
+
+
+def test_gcloud_project_mismatch_check_fails() -> None:
+    finding = check_gcloud_project(
+        _snapshot(
+            gcloud_project_property="other-project",
+            project="my-dev-project",
+            adc_exists=True,
+            gcloud_trust_path="/usr/bin/gcloud",
+        )
+    )
+    assert finding is not None
+    assert finding.status == "error"
+    assert finding.check_id == "gcloud_project"
+
+
+def test_gcloud_trust_failure_check() -> None:
+    findings = check_gcloud_trust(
+        _snapshot(gcloud_trust_path=None, gcloud_trust_error="untrusted binary")
+    )
+    assert findings is not None
+    assert any(f.status == "error" and f.check_id == "gcloud_trust" for f in findings)
+
+
+def test_state_permissions_strict_check_fails() -> None:
+    finding = check_state_permissions(
+        _snapshot(
+            state_permissions_checked=True,
+            state_permission_issues=("unsafe permissions on approvals.json",),
+            state_permission_path="/config/approvals.json",
+        )
+    )
+    assert finding is not None
+    assert finding.status == "error"
+    assert finding.check_id == "state_permissions"
+
+
+def test_policy_allowlist_denial_via_strict_facts() -> None:
+    """Plan still requires approval; policy violations surface at config parse time.
+
+    Doctor policy check reports loaded mode; allowlist denials are ConfigValidationError
+    before planning. Assert plan refuses without approval under strict policy flags.
+    """
+    plan = build_activation_plan(
+        _facts(
+            approval_present=False,
+            require_initialized_adc_for_hook=True,
+        )
+    )
+    assert plan.denial is not None
+    assert plan.denial.exit_code == int(ExitCode.APPROVAL_REQUIRED)

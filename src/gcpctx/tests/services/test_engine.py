@@ -54,7 +54,7 @@ def _engine(
 def test_resolve_plan_apply_happy_path(project_tree: Path) -> None:
     ctx = resolve_project_context(project_tree)
     add_approval(ctx, mode="remembered")
-    engine, _gcloud, audit, _env = _engine()
+    engine, _, audit, _ = _engine()
     request = ActivationRequest(
         cwd=project_tree,
         shell_name="zsh",
@@ -106,7 +106,7 @@ def test_null_prompter_fails_closed(project_tree: Path) -> None:
 def test_explain_plan_does_not_apply(project_tree: Path) -> None:
     ctx = resolve_project_context(project_tree)
     add_approval(ctx, mode="once")
-    engine, _gcloud, audit, _env = _engine()
+    engine, _, audit, _ = _engine()
     plan = engine.explain_plan(
         ActivationRequest(
             cwd=project_tree,
@@ -121,7 +121,7 @@ def test_explain_plan_does_not_apply(project_tree: Path) -> None:
 
 
 def test_missing_config_via_engine(tmp_path: Path) -> None:
-    engine, _gcloud, _audit, env = _engine(env=FakeEnv({"GCPCTX_ACTIVE": "1"}))
+    engine, _, _, env = _engine(env=FakeEnv({"GCPCTX_ACTIVE": "1"}))
     result = engine.missing_config_result()
     assert result.active is False
     assert result.noop is False

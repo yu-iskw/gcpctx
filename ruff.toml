@@ -63,6 +63,9 @@ ignore = [
 "src/gcpctx/models.py" = [
   "TC003", # Pydantic resolves Path at model build time
 ]
+"src/gcpctx/core/model.py" = [
+  "TC003", # Pydantic resolves Path at model build time
+]
 "src/gcpctx/gcloud.py" = [
   "S603", # intentional gcloud subprocess with argv list
 ]
