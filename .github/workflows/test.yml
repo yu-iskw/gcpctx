@@ -17,16 +17,35 @@ on:
   push:
     branches:
       - main
+    paths:
+      - .github/workflows/test.yml
+      - pyproject.toml
+      - src/gcpctx/**/*.py
+      - pylintrc
+      - mise.toml
+      - mise.lock
+      - Makefile
+      - dev/**
+      - uv.lock
+      - .python-version
+      - requirements.setup.txt
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   test:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.13"]' || '["3.11","3.12","3.13"]') }}
       fail-fast: false
     defaults:
       run:
@@ -40,18 +59,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: |
-          bash dev/setup.sh --deps "development"
+        run: bash dev/setup.sh --deps "development"
       - name: Vulture (dead code)
-        run: |
-          uv run vulture
+        run: uv run vulture
       - name: Run tests
-        run: |
-          uv run bash dev/test_python.sh
+        run: uv run bash dev/test_python.sh
       - name: Test build
-        run: |
-          uv run bash dev/build.sh
-      # - name: Test installation
-      #   run: |
-      #     pip install -e .
-      #     python -c 'import ${{ env.PYTHON_PACKAGE_NAME }}'
+        run: uv run bash dev/build.sh
+      - name: Trunk Check
+        if: matrix.python-version == '3.13' && github.event_name != 'push'
+        uses: trunk-io/trunk-action@75699af9e26881e564e9d832ef7dc3af25ec031b # v1
