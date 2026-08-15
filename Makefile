@@ -50,10 +50,15 @@ format:
 dead-code vulture:
 	uv run vulture
 
-# Run unit tests with coverage (pytest-cov / coverage.py).
+# Run unit tests with coverage in the current environment.
 .PHONY: test coverage
 test coverage:
 	bash ./dev/test_python.sh
+
+# Run the complete supported-Python suite through the same entrypoint as CI.
+.PHONY: test-all
+test-all:
+	uv run --with "nox[uv]==2026.7.11" bash ./dev/test_all.sh
 
 # Run local CodeQL analysis.
 .PHONY: codeql
@@ -70,7 +75,7 @@ build:
 clean:
 	bash ./dev/clean.sh
 
-all: clean lint test build
+all: clean lint test-all build
 
 # Publish to pypi
 .PHONY: publish
