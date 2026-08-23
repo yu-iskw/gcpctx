@@ -25,9 +25,10 @@ from typing import TYPE_CHECKING, Literal
 
 from rich.console import Console
 
-from gcpctx import audit, paths
+from gcpctx import audit, gcpctx_trust, paths
 from gcpctx.config import service_account_project
 from gcpctx.errors import ApprovalRequiredError
+from gcpctx.gcpctx_trust import approval_pin_fields
 from gcpctx.models import ApprovalRecord, ApprovalsStore
 from gcpctx.policy import SecurityPolicy, load_policy
 from gcpctx.security import ensure_dir, ensure_managed_file, file_lock, secure_read_text
@@ -40,7 +41,9 @@ if TYPE_CHECKING:
     from gcpctx.project_context import ResolvedProjectContext
 
 ApprovalMode = Literal["once", "remembered"]
+ApprovalScope = Literal["shell", "run"]
 APPROVAL_SCHEMA_V2 = 2
+RUN_APPROVAL_TTL = timedelta(hours=8)
 
 
 def load_store() -> ApprovalsStore:
@@ -75,29 +78,46 @@ def _identity_matches(
     )
 
 
-def _record_matches(  # noqa: PLR0911, PLR0912
+def _binding_matches(
+    record: ApprovalRecord,
+    ctx: ResolvedProjectContext,
+    root_str: str,
+    scope: ApprovalScope,
+) -> bool:
+    return _identity_matches(record, ctx, root_str) and record.scope == scope
+
+
+def _gcloud_pin_matches(
+    record: ApprovalRecord,
+    policy: SecurityPolicy,
+    gcloud_trust: GcloudTrustResult | None,
+) -> bool:
+    if not policy.require_gcloud_path_approval:
+        return True
+    sha_ok = (
+        record.gcloud_sha256 is None
+        or gcloud_trust is None
+        or gcloud_trust.sha256 is None
+        or record.gcloud_sha256 == gcloud_trust.sha256
+    )
+    return gcloud_trust is not None and record.gcloud_path == gcloud_trust.path and sha_ok
+
+
+def _record_matches(  # noqa: PLR0911, PLR0913
     record: ApprovalRecord,
     ctx: ResolvedProjectContext,
     root_str: str,
     policy: SecurityPolicy,
     gcloud_trust: GcloudTrustResult | None,
+    required_scope: ApprovalScope | None,
 ) -> bool:
     if not _identity_matches(record, ctx, root_str):
         return False
+    if required_scope is not None and record.scope != required_scope:
+        return False
     if record.schema_version < APPROVAL_SCHEMA_V2 and policy.strict:
         return False
-    if policy.require_gcloud_path_approval:
-        if gcloud_trust is None:
-            return False
-        if record.gcloud_path != gcloud_trust.path:
-            return False
-        if (
-            record.gcloud_sha256 is not None
-            and gcloud_trust.sha256 is not None
-            and record.gcloud_sha256 != gcloud_trust.sha256
-        ):
-            return False
-    return True
+    return _gcloud_pin_matches(record, policy, gcloud_trust)
 
 
 def _is_expired(record: ApprovalRecord) -> bool:
@@ -117,13 +137,14 @@ def find_matching_approval(
     *,
     policy: SecurityPolicy | None = None,
     gcloud_trust: GcloudTrustResult | None = None,
+    required_scope: ApprovalScope | None = None,
 ) -> ApprovalRecord | None:
     """Return matching approval record if one exists."""
     active_policy = policy or load_policy()
     store = load_store()
     root_str = str(ctx.root.resolve())
     for record in store.approvals:
-        if not _record_matches(record, ctx, root_str, active_policy, gcloud_trust):
+        if not _record_matches(record, ctx, root_str, active_policy, gcloud_trust, required_scope):
             continue
         if _is_expired(record):
             continue
@@ -175,7 +196,7 @@ def resolve_approval_doctor_state(
     )
     matching: ApprovalRecord | None = None
     for record in store.approvals:
-        if not _record_matches(record, ctx, root_str, policy, gcloud_trust):
+        if not _record_matches(record, ctx, root_str, policy, gcloud_trust, None):
             continue
         if _is_expired(record):
             continue
@@ -199,23 +220,30 @@ def approval_evidence_id(record: ApprovalRecord) -> str:
     return f"sha256:{digest[:16]}"
 
 
+def _remembered_expires_at(scope: ApprovalScope, policy: SecurityPolicy) -> str:
+    now = datetime.now(tz=UTC)
+    if scope == "run":
+        return (now + RUN_APPROVAL_TTL).isoformat()
+    return (now + timedelta(days=policy.approval_ttl_days)).isoformat()
+
+
 def add_approval(
     ctx: ResolvedProjectContext,
     *,
     mode: ApprovalMode,
     policy: SecurityPolicy | None = None,
     gcloud_trust: GcloudTrustResult | None = None,
+    scope: ApprovalScope = "shell",
 ) -> ApprovalRecord:
-    """Add or replace approval for this binding."""
+    """Add or replace approval for this binding and scope."""
     active_policy = policy or load_policy()
     store = load_store()
     root_str = str(ctx.root.resolve())
-    store.approvals = [r for r in store.approvals if not _identity_matches(r, ctx, root_str)]
-    expires_at = None
-    if mode == "remembered":
-        expires_at = (
-            datetime.now(tz=UTC) + timedelta(days=active_policy.approval_ttl_days)
-        ).isoformat()
+    store.approvals = [
+        record for record in store.approvals if not _binding_matches(record, ctx, root_str, scope)
+    ]
+    expires_at = _remembered_expires_at(scope, active_policy) if mode == "remembered" else None
+    identity = gcpctx_trust.fingerprint_gcpctx()
     record = ApprovalRecord(
         root=root_str,
         profile=ctx.profile_name,
@@ -228,6 +256,8 @@ def add_approval(
         gcloud_path=gcloud_trust.path if gcloud_trust else None,
         gcloud_sha256=gcloud_trust.sha256 if gcloud_trust else None,
         expires_at=expires_at,
+        scope=scope,
+        **approval_pin_fields(identity),
     )
     store.approvals.append(record)
     save_store(store)
@@ -236,6 +266,7 @@ def add_approval(
         root=root_str,
         profile=ctx.profile_name,
         mode=mode,
+        scope=scope,
         expires_at=expires_at,
     )
     return record
@@ -261,11 +292,13 @@ def _record_matches_once(record: ApprovalRecord, other: ApprovalRecord) -> bool:
         and other.project == record.project
         and other.service_account == record.service_account
         and other.config_sha256 == record.config_sha256
+        and other.scope == record.scope
+        and other.mode == "once"
     )
 
 
 def consume_once_approval(record: ApprovalRecord) -> None:
-    """Remove a once-mode approval after use."""
+    """Remove a once-mode approval after use without dropping the sibling scope."""
     if record.mode != "once":
         return
     store = load_store()
@@ -300,43 +333,23 @@ def _git_metadata(root: Path) -> tuple[str | None, str | None]:
     return remote, branch
 
 
-def prompt_for_approval(  # noqa: C901, PLR0912
-    ctx: ResolvedProjectContext,
-    *,
-    cloudsdk_config: Path,
-    interactive: bool,
-    policy: SecurityPolicy | None = None,
-    gcloud_trust: GcloudTrustResult | None = None,
-) -> ApprovalRecord:
-    """Prompt user for approval or fail closed in non-interactive mode."""
-    if not interactive:
-        audit.log_event(
-            "approval_denied",
-            root=str(ctx.root),
-            profile=ctx.profile_name,
-            reason="non_interactive",
-        )
-        msg = "approval required for activation (non-interactive mode)"
-        raise ApprovalRequiredError(msg)
-
-    active_policy = policy or load_policy()
-    console = Console(stderr=True)
-    console.print("\n[bold]gcpctx wants to activate this Google Cloud context:[/bold]\n")
-    console.print(f"Directory:        {ctx.root}")
-    console.print(f"Profile:          {ctx.profile_name}")
-    console.print(f"Project:          {ctx.project}")
-    console.print(f"Service account:  {ctx.service_account}")
-    console.print(f"Config SHA-256:   {ctx.config_sha256[:12]}...")
-    console.print(f"CLOUDSDK_CONFIG:  {cloudsdk_config}")
+def _print_optional_profile_lines(console: Console, ctx: ResolvedProjectContext) -> None:
     if ctx.profile.quota_project:
         console.print(f"Quota project:    {ctx.profile.quota_project}")
     if ctx.profile.env:
         env_keys = ", ".join(sorted(ctx.profile.env))
         console.print(f"Env overrides:    {env_keys}")
-    if gcloud_trust is not None:
-        fp = gcloud_trust.sha256[:12] if gcloud_trust.sha256 else "unavailable"
-        console.print(f"gcloud path:      {gcloud_trust.path}")
-        console.print(f"gcloud SHA-256:   {fp}...")
+
+
+def _print_gcloud_trust_lines(console: Console, gcloud_trust: GcloudTrustResult | None) -> None:
+    if gcloud_trust is None:
+        return
+    fp = gcloud_trust.sha256[:12] if gcloud_trust.sha256 else "unavailable"
+    console.print(f"gcloud path:      {gcloud_trust.path}")
+    console.print(f"gcloud SHA-256:   {fp}...")
+
+
+def _print_sa_and_git_lines(console: Console, ctx: ResolvedProjectContext) -> None:
     sa_project = service_account_project(ctx.service_account)
     if sa_project is not None and sa_project != ctx.project:
         console.print(
@@ -348,11 +361,66 @@ def prompt_for_approval(  # noqa: C901, PLR0912
         console.print(f"Git remote:       {git_remote}")
     if git_branch:
         console.print(f"Git branch:       {git_branch}")
-    if active_policy.approval_ttl_days:
-        expiry = (datetime.now(tz=UTC) + timedelta(days=active_policy.approval_ttl_days)).date()
-        console.print(f"Remember until:   {expiry} ({active_policy.approval_ttl_days} days)")
+
+
+def _print_approval_header(
+    console: Console,
+    ctx: ResolvedProjectContext,
+    gcloud_trust: GcloudTrustResult | None,
+    policy: SecurityPolicy,
+    scope: ApprovalScope,
+) -> None:
+    console.print("\n[bold]gcpctx wants to activate this Google Cloud context:[/bold]\n")
+    console.print(f"Directory:        {ctx.root}")
+    console.print(f"Profile:          {ctx.profile_name}")
+    console.print(f"Project:          {ctx.project}")
+    console.print(f"Service account:  {ctx.service_account}")
+    console.print(f"Scope:            {scope}")
+    console.print(f"Config SHA-256:   {ctx.config_sha256[:12]}...")
+    console.print(f"CLOUDSDK_CONFIG:  {ctx.expected_cloudsdk_config()}")
+    _print_optional_profile_lines(console, ctx)
+    _print_gcloud_trust_lines(console, gcloud_trust)
+    _print_sa_and_git_lines(console, ctx)
+    console.print(_remember_until_line(policy, scope))
     console.print("\nApprove this directory/profile/service-account binding?\n")
+    if scope == "run":
+        console.print("[A] Approve once  [R] Remember for 8 hours  [D] Deny")
+        return
     console.print("[A] Approve once  [R] Remember approval  [D] Deny")
+
+
+def _remember_until_line(policy: SecurityPolicy, scope: ApprovalScope) -> str:
+    if scope == "run":
+        hours = int(RUN_APPROVAL_TTL.total_seconds() // 3600)
+        expiry = datetime.now(tz=UTC) + RUN_APPROVAL_TTL
+        return f"Remember until:   {expiry.isoformat()} ({hours} hours)"
+    expiry_date = (datetime.now(tz=UTC) + timedelta(days=policy.approval_ttl_days)).date()
+    return f"Remember until:   {expiry_date} ({policy.approval_ttl_days} days)"
+
+
+def prompt_for_approval(
+    ctx: ResolvedProjectContext,
+    *,
+    interactive: bool,
+    policy: SecurityPolicy | None = None,
+    gcloud_trust: GcloudTrustResult | None = None,
+    scope: ApprovalScope = "shell",
+) -> ApprovalRecord:
+    """Prompt user for approval or fail closed in non-interactive mode."""
+    if not interactive:
+        audit.log_event(
+            "approval_denied",
+            root=str(ctx.root),
+            profile=ctx.profile_name,
+            reason="non_interactive",
+            scope=scope,
+        )
+        msg = "approval required for activation (non-interactive mode)"
+        raise ApprovalRequiredError(msg)
+
+    active_policy = policy or load_policy()
+    console = Console(stderr=True)
+    _print_approval_header(console, ctx, gcloud_trust, active_policy, scope)
 
     while True:
         choice = console.input("[bold cyan]Choice[/bold cyan] (A/R/D): ").strip().upper()
@@ -362,6 +430,7 @@ def prompt_for_approval(  # noqa: C901, PLR0912
                 root=str(ctx.root),
                 profile=ctx.profile_name,
                 reason="user_denied",
+                scope=scope,
             )
             msg = "activation denied by user"
             raise ApprovalRequiredError(msg)
@@ -372,5 +441,6 @@ def prompt_for_approval(  # noqa: C901, PLR0912
                 mode=mode,
                 policy=active_policy,
                 gcloud_trust=gcloud_trust,
+                scope=scope,
             )
         console.print("Invalid choice. Enter A, R, or D.")

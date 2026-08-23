@@ -21,7 +21,7 @@ import subprocess
 import pytest
 
 from gcpctx.models import ActivationResult
-from gcpctx.shell import render_shell, shell_quote
+from gcpctx.shell import render_init_for_shell, render_shell, shell_quote
 
 
 def test_shell_quote_special_chars() -> None:
@@ -56,3 +56,15 @@ def test_render_deactivate() -> None:
 def test_render_noop() -> None:
     result = ActivationResult(active=False, noop=True)
     assert render_shell(result, "bash") == ""
+
+
+def test_install_snippet_uses_absolute_launcher() -> None:
+    launcher = "/opt/tools/gcpctx"
+    zsh = render_init_for_shell("zsh", launcher=launcher)
+    bash = render_init_for_shell("bash", launcher=launcher)
+    quoted = shell_quote(launcher)
+    assert f'eval "$({quoted} hook --shell zsh)"' in zsh
+    assert f'eval "$({quoted} hook --shell bash)"' in bash
+    assert 'eval "$(gcpctx hook' not in zsh
+    assert 'eval "$(gcpctx hook' not in bash
+    assert f'eval "$({quoted} activate' in zsh

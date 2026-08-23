@@ -35,7 +35,7 @@ from gcpctx.config import (
     validate_init_project_inputs,
 )
 from gcpctx.discovery import config_path, find_project_root
-from gcpctx.doctor import run_doctor, status_info
+from gcpctx.doctor import DoctorProcessEnv, run_doctor, status_info
 from gcpctx.errors import (
     ConfigNotFoundError,
     ConfigValidationError,
@@ -45,7 +45,7 @@ from gcpctx.errors import (
 from gcpctx.exit_codes import ExitCode
 from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.logging import log_stderr
-from gcpctx.models import ActivationRequest, ActivationResult
+from gcpctx.models import ActivationRequest, ActivationResult, DoctorResult
 from gcpctx.policy import load_policy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 from gcpctx.runner import run_command
@@ -54,6 +54,7 @@ from gcpctx.shell import (
     ShellName,
     render_init_for_shell,
     render_shell,
+    resolved_launcher_path,
 )
 
 app = typer.Typer(
@@ -142,13 +143,14 @@ def _emit_init_instructions(rc_file: str) -> None:
     log_stderr(
         f"Add the snippet above to {rc_file} (or redirect stdout: >> {rc_file}). "
         "Check for an existing '# >>> gcpctx hook >>>' block first to avoid duplicates.\n"
-        "Ensure gcpctx is on PATH (pipx / uv tool install, or alias gcpctx='uvx gcpctx').\n"
+        "Hooks call the absolute launcher captured above; re-run gcpctx install after "
+        "moving or upgrading the binary.\n"
         "Reload your shell: exec $SHELL"
     )
 
 
 def _emit_init(shell: ShellName) -> None:
-    sys.stdout.write(render_init_for_shell(shell))
+    sys.stdout.write(render_init_for_shell(shell, launcher=str(resolved_launcher_path())))
     _emit_init_instructions(_INIT_RC[shell])
 
 
@@ -298,14 +300,20 @@ def doctor(
 def approve(
     profile: Annotated[str | None, typer.Option(help="Profile name.")] = None,
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
+    run_scope: Annotated[
+        bool,
+        typer.Option("--run", help="Grant run-scope approval (8 hour TTL)."),
+    ] = False,
 ) -> None:
     """Remember approval for the current directory/profile."""
     try:
         ctx = _require_project_context(cwd, profile)
         policy = load_policy()
         trust = resolve_trusted_gcloud(ctx.root, policy=policy, configured_path=ctx.gcloud_path)
-        add_approval(ctx, mode="remembered", policy=policy, gcloud_trust=trust)
-        typer.echo(f"Remembered approval for profile {ctx.profile_name!r} at {ctx.root}")
+        scope = "run" if run_scope else "shell"
+        add_approval(ctx, mode="remembered", policy=policy, gcloud_trust=trust, scope=scope)
+        label = "run-scope" if run_scope else "shell"
+        typer.echo(f"Remembered {label} approval for profile {ctx.profile_name!r} at {ctx.root}")
     except GcpctxError as exc:
         _handle_error(exc)
 
@@ -406,6 +414,29 @@ def clean(  # noqa: PLR0912
         _handle_error(exc)
 
 
+def _run_argv(args: list[str]) -> list[str]:
+    usage = "usage: gcpctx run [--profile NAME] -- COMMAND [ARGS...]"
+    if not args:
+        typer.echo(usage, err=True)
+        raise typer.Exit(code=2)
+    cmd = list(args)
+    if cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        typer.echo(usage, err=True)
+        raise typer.Exit(code=2)
+    return cmd
+
+
+def _exit_if_doctor_failed(doctor_result: DoctorResult) -> None:
+    if doctor_result.exit_code == 0:
+        return
+    for check in doctor_result.checks:
+        if check.status == "fail":
+            log_stderr(f"{check.id}: {check.message}")
+    raise typer.Exit(code=doctor_result.exit_code)
+
+
 @app.command(context_settings={"allow_extra_args": True})
 def run(
     ctx: typer.Context,
@@ -421,15 +452,7 @@ def run(
     ] = False,
 ) -> None:
     """Run a command with per-project credentials (parent shell unchanged)."""
-    if not ctx.args:
-        typer.echo("usage: gcpctx run [--profile NAME] -- COMMAND [ARGS...]", err=True)
-        raise typer.Exit(code=2)
-    cmd = list(ctx.args)
-    if cmd[0] == "--":
-        cmd = cmd[1:]
-    if not cmd:
-        typer.echo("usage: gcpctx run [--profile NAME] -- COMMAND [ARGS...]", err=True)
-        raise typer.Exit(code=2)
+    cmd = _run_argv(list(ctx.args))
     try:
         result = _run_activation(
             ActivationRequest(
@@ -446,6 +469,17 @@ def run(
             typer.echo("activation failed", err=True)
             raise typer.Exit(code=2)
         env = activation.child_environ(result)
+        doctor_result = run_doctor(
+            _resolve_cwd(cwd),
+            profile=profile,
+            interactive=False,
+            strict=True,
+            process_env=DoctorProcessEnv(
+                values=env,
+                skip_gac=allow_google_application_credentials,
+            ),
+        )
+        _exit_if_doctor_failed(doctor_result)
         raise typer.Exit(code=run_command(cmd, env))
     except GcpctxError as exc:
         _handle_error(exc)

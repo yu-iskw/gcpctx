@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import stat
@@ -25,9 +24,8 @@ from pathlib import Path
 from gcpctx.config import load_project_config
 from gcpctx.discovery import find_project_root
 from gcpctx.errors import GcloudNotFoundError, GcloudTrustError
+from gcpctx.fingerprint import clear_fingerprint_cache as _clear_file_cache, fingerprint_file
 from gcpctx.policy import SecurityPolicy, load_policy, matches_allowlist
-
-_FINGERPRINT_CACHE: dict[str, tuple[int, int, str]] = {}
 
 
 @dataclass(frozen=True)
@@ -66,24 +64,9 @@ def resolve_gcloud_path(cwd: Path, *, configured: str | None = None) -> str:
     return path
 
 
-def fingerprint_gcloud(path: str) -> str | None:  # noqa: PLR0911
+def fingerprint_gcloud(path: str) -> str | None:
     """Return SHA-256 hex digest of the gcloud binary, if readable."""
-    resolved = Path(path)
-    try:
-        stat_result = resolved.stat()
-    except OSError:
-        return None
-    cache_key = str(resolved)
-    cached = _FINGERPRINT_CACHE.get(cache_key)
-    if cached and cached[0] == stat_result.st_size and cached[1] == stat_result.st_mtime_ns:
-        return cached[2]
-    try:
-        data = resolved.read_bytes()
-    except OSError:
-        return None
-    digest = hashlib.sha256(data).hexdigest()
-    _FINGERPRINT_CACHE[cache_key] = (stat_result.st_size, stat_result.st_mtime_ns, digest)
-    return digest
+    return fingerprint_file(path)
 
 
 def _reject_gcloud_under_cwd(resolved: Path, cwd: Path) -> None:
@@ -202,4 +185,4 @@ def resolve_trusted_gcloud(
 
 def clear_fingerprint_cache() -> None:
     """Reset cached fingerprints (for tests)."""
-    _FINGERPRINT_CACHE.clear()
+    _clear_file_cache()

@@ -61,6 +61,7 @@ def test_doctor_happy_path(
     assert "approval_expiry" in ids
     assert "expected_context" in ids
     assert "ambient_cloudsdk" in ids
+    assert "gcpctx_trust" in ids
     config_check = next(c for c in result.checks if c.id == "config")
     ambient_check = next(c for c in result.checks if c.id == "ambient_cloudsdk")
     assert config_check.status == "pass"

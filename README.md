@@ -50,7 +50,7 @@ uvx gcpctx status
 uvx gcpctx doctor
 ```
 
-Shell hooks from `gcpctx install --shell zsh` call `gcpctx` on your `PATH`. After choosing `uvx`, either add a shell alias (`alias gcpctx='uvx gcpctx'`) or install with `pipx` / `uv tool install` for hook integration.
+Shell hooks from `gcpctx install --shell zsh` bind the **absolute launcher path** captured at install time (never a bare `gcpctx` on PATH). Re-run `gcpctx install` after moving or upgrading the binary.
 
 ### pipx
 
@@ -112,7 +112,7 @@ gcpctx install --shell zsh >> ~/.zshrc
 exec $SHELL       # reload shell
 ```
 
-The hook runs `gcpctx hook --shell zsh` on every directory change. **`install` and `hook` write shell code to stdout only**; setup instructions go to stderr.
+The hook runs the **absolute launcher** captured by `gcpctx install` on every directory change. **`install` and `hook` write shell code to stdout only**; setup instructions go to stderr. Re-run `gcpctx install` after moving the binary so the snippet stays accurate.
 
 Manual activation without hooks:
 
@@ -160,14 +160,16 @@ Agents run in terminals or sandboxes that inherit environment variables. Use eit
 Run a command with per-project credentials **without** changing your parent shell:
 
 ```bash
-gcpctx approve
+gcpctx approve --run
 gcpctx run -- claude
 uvx gcpctx run -- codex ...
 gcpctx run --profile dev -- gcloud storage ls
 ```
 
 - Requires `.gcpctx.toml` in the current directory tree (exit 2 if missing).
-- Pre-approve for non-interactive terminals (`gcpctx approve`).
+- Pre-approve **run-scope** for non-interactive terminals (`gcpctx approve --run`). A 30-day shell remember (`gcpctx approve`) does **not** authorize `run`.
+- `run` fail-closes on `doctor --strict` against the child environment and does not exec on non-zero.
+- Run-scope remember lasts **8 hours**. Interactive `run` can approve once instead.
 - `GOOGLE_APPLICATION_CREDENTIALS` is unset in the child by default (same as hook mode).
 - Access tokens are short-lived; client libraries refresh ADC automatically (no gcpctx supervisor).
 
@@ -190,7 +192,7 @@ gcpctx run --profile dev -- gcloud storage ls
 
 ### Non-interactive / fail-closed
 
-Without a matching approval, `gcpctx activate` exits with code **3** in non-interactive mode (typical agent terminals). Pre-run `gcpctx approve` in CI or document that users must activate interactively once.
+Without a matching **shell** approval, `gcpctx activate` exits with code **3** in non-interactive mode. Without a matching **run-scope** approval, `gcpctx run` exits **3**. Pre-run `gcpctx approve` (shell) and `gcpctx approve --run` (agents) as needed.
 
 ### Agent-friendly diagnostics
 
@@ -269,7 +271,7 @@ Re-run `gcpctx install --shell zsh >> ~/.zshrc` (or replace the `# >>> gcpctx ho
 
 - Remove any `[profiles.*.env] CLOUDSDK_CORE_PROJECT` entries — use `profile.project` instead.
 - Service account emails must use the same GCP project as `profile.project` (e.g. `agent@my-dev-project.iam.gserviceaccount.com` for `project = "my-dev-project"`). Cross-project impersonation is not supported in v0.2.
-- Re-run `gcpctx approve` after upgrade (approval schema v2 adds gcloud binding and expiry).
+- Re-run `gcpctx approve` after upgrade (approval schema v2 adds gcloud binding and expiry). Re-run `gcpctx approve --run` for agent launches (8 hour TTL; pins the gcpctx launcher/interpreter/package triple).
 - Pin gcloud per project if needed: add `gcloud_path` to `.gcpctx.toml` or run `gcpctx config "$(which gcloud)"` in the repo (optional; pinning overrides PATH — run `gcpctx config --unset` if you move or upgrade gcloud)
 
 ### Policy file (optional)

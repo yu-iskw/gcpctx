@@ -88,3 +88,9 @@ class GcloudTrustError(GcpctxError):
     """Raised when the gcloud binary fails trust validation."""
 
     exit_code = ExitCode.GCLOUD_TRUST_FAILURE
+
+
+class GcpctxTrustError(GcpctxError):
+    """Raised when the gcpctx launcher, interpreter, or package fails trust validation."""
+
+    exit_code = ExitCode.GCLOUD_TRUST_FAILURE

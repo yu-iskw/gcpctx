@@ -19,9 +19,9 @@ import os
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from gcpctx import __version__, audit, gcloud as gcloud_mod, paths
+from gcpctx import __version__, audit, gcloud as gcloud_mod, gcpctx_trust, paths
 from gcpctx.approvals import (
     ApprovalDoctorState,
     approval_evidence_id,
@@ -32,15 +32,32 @@ from gcpctx.discovery import find_project_root
 from gcpctx.doctor_checks import DOCTOR_CHECK_IDS, DOCTOR_CHECK_REGISTRY, check_exit_code
 from gcpctx.errors import ConfigNotFoundError, ConfigValidationError, GcpctxError
 from gcpctx.gcloud_trust import GcloudTrustResult, resolve_trusted_gcloud
-from gcpctx.models import DoctorCheck, DoctorRemediation, DoctorResult, ProfileConfig
+from gcpctx.models import (
+    ApprovalRecord,
+    DoctorCheck,
+    DoctorRemediation,
+    DoctorResult,
+    ProfileConfig,
+)
 from gcpctx.policy import SecurityPolicy, load_policy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 from gcpctx.security import check_path_permissions, reject_symlink
 from gcpctx.settings import deprecated_global_gcloud_path
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 CheckStatus = Literal["ok", "warning", "error"]
 _STATUS_RANK = {"ok": 0, "warning": 1, "error": 2}
 _WARN_ONLY_CHECK_IDS = frozenset({"settings"})
+
+
+@dataclass(frozen=True, slots=True)
+class DoctorProcessEnv:
+    """Optional child-process environment overlay for doctor (used by ``gcpctx run``)."""
+
+    values: Mapping[str, str]
+    skip_gac: bool = False
 
 
 @dataclass
@@ -273,8 +290,12 @@ def _check_approvals(collector: _CheckCollector, state: ApprovalDoctorState) -> 
     )
 
 
-def _check_env_project(collector: _CheckCollector, ctx: ResolvedProjectContext) -> None:
-    env_project = os.environ.get("CLOUDSDK_CORE_PROJECT")
+def _check_env_project(
+    collector: _CheckCollector,
+    ctx: ResolvedProjectContext,
+    environ: Mapping[str, str],
+) -> None:
+    env_project = environ.get("CLOUDSDK_CORE_PROJECT")
     if not env_project:
         collector.add("env_project", "ok", "CLOUDSDK_CORE_PROJECT unset in environment")
         return
@@ -526,8 +547,20 @@ def _check_impersonation_iam(
     )
 
 
-def _check_gac(collector: _CheckCollector) -> None:
-    gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+def _check_gac(
+    collector: _CheckCollector,
+    environ: Mapping[str, str],
+    *,
+    skip: bool = False,
+) -> None:
+    if skip:
+        collector.add(
+            "gac",
+            "ok",
+            "GOOGLE_APPLICATION_CREDENTIALS allowed by run flag",
+        )
+        return
+    gac = environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if not gac:
         collector.add("gac", "ok", "GOOGLE_APPLICATION_CREDENTIALS unset")
         return
@@ -539,14 +572,57 @@ def _check_gac(collector: _CheckCollector) -> None:
     )
 
 
+def _check_gcpctx_trust(
+    collector: _CheckCollector,
+    matching: ApprovalRecord | None,
+) -> None:
+    try:
+        live = gcpctx_trust.fingerprint_gcpctx()
+    except GcpctxError as exc:
+        collector.add(
+            "gcpctx_trust",
+            "error",
+            str(exc),
+            evidence={"reason": "trust_validation_failed"},
+        )
+        return
+    if matching is None:
+        collector.add(
+            "gcpctx_trust",
+            "ok",
+            f"gcpctx identity computed (launcher {live.launcher_path})",
+            evidence={"launcher": live.launcher_path, "python": live.python_path},
+        )
+        return
+    reason = gcpctx_trust.gcpctx_pin_mismatch_reason(matching, live)
+    if reason is None:
+        collector.add(
+            "gcpctx_trust",
+            "ok",
+            "gcpctx identity matches stored approval pin",
+            evidence={"launcher": live.launcher_path},
+        )
+        return
+    collector.add(
+        "gcpctx_trust",
+        "error",
+        f"gcpctx identity does not match the stored approval pin ({reason})",
+        evidence={"reason": reason, "launcher": live.launcher_path},
+    )
+
+
 def run_doctor(  # noqa: PLR0911, PLR0912
     cwd: Path,
     *,
     profile: str | None = None,
     interactive: bool | None = None,
     strict: bool = False,
+    process_env: DoctorProcessEnv | None = None,
 ) -> DoctorResult:
     """Run diagnostic checks and return aggregated result."""
+    overlay = process_env
+    env = os.environ if overlay is None else overlay.values
+    skip_gac = False if overlay is None else overlay.skip_gac
     is_interactive = sys.stdin.isatty() if interactive is None else interactive
     try:
         policy = load_policy()
@@ -601,6 +677,7 @@ def run_doctor(  # noqa: PLR0911, PLR0912
     check_policy = _strict_policy_for_checks(policy, effective_strict)
     approval_state = resolve_approval_doctor_state(ctx, policy=check_policy, gcloud_trust=trust)
     _check_approvals(collector, approval_state)
+    _check_gcpctx_trust(collector, approval_state.matching)
     expected_cloudsdk = ctx.expected_cloudsdk_config()
     _check_expected_context(collector, expected_cloudsdk)
     if trust is not None:
@@ -612,11 +689,11 @@ def run_doctor(  # noqa: PLR0911, PLR0912
         )
         if effective_strict:
             _check_impersonation_iam(collector, expected_cloudsdk, ctx, trust.path)
-    ambient_cloudsdk = os.environ.get("CLOUDSDK_CONFIG", "")
+    ambient_cloudsdk = env.get("CLOUDSDK_CONFIG", "")
     _check_ambient_cloudsdk(collector, ambient_cloudsdk, expected_cloudsdk)
-    _check_env_project(collector, ctx)
+    _check_env_project(collector, ctx, env)
     _check_state_permissions(collector, effective_strict)
-    _check_gac(collector)
+    _check_gac(collector, env, skip=skip_gac)
     return _finalize(collector, effective_strict)
 
 
