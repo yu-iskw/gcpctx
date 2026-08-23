@@ -10,13 +10,13 @@ Shell integration targets **bash** and **zsh**.
 
 ### Trust boundaries
 
-| Boundary                                   | Trust level               | Notes                                                                                   |
-| ------------------------------------------ | ------------------------- | --------------------------------------------------------------------------------------- |
-| `.gcpctx.toml` in a repository             | **Untrusted**             | Validated strictly; cannot override project identity or credential paths                |
-| `~/.config/gcpctx/` and `~/.cache/gcpctx/` | **Trusted user state**    | Atomic writes, advisory locks, symlink rejection, `0600`/`0700` permissions             |
-| `gcloud` binary                            | **Conditionally trusted** | Resolved path validated; optional per-project pin in `.gcpctx.toml` via `gcpctx config` |
-| `gcpctx` launcher / interpreter / package  | **Pinned on approval**    | Path + SHA-256 triple on schema v2; doctor `gcpctx_trust` (exit 6)                      |
-| `policy.toml`                              | **Laptop-local policy**   | Optional `~/.config/gcpctx/policy.toml` or `$GCPCTX_POLICY_PATH`; not org PAM           |
+| Boundary                                   | Trust level               | Notes                                                                                    |
+| ------------------------------------------ | ------------------------- | ---------------------------------------------------------------------------------------- |
+| `.gcpctx.toml` in a repository             | **Untrusted**             | Validated strictly; cannot override project identity or credential paths                 |
+| `~/.config/gcpctx/` and `~/.cache/gcpctx/` | **Trusted user state**    | Atomic writes, advisory locks, symlink rejection, `0600`/`0700` permissions              |
+| `gcloud` binary                            | **Conditionally trusted** | Resolved path validated; optional per-project pin in `.gcpctx.toml` via `gcpctx config`  |
+| `gcpctx` launcher / interpreter / package  | **Pinned on approval**    | Path + SHA-256 triple on schema v2; doctor `gcpctx_trust` (exit 6)                       |
+| `policy.toml`                              | **Laptop-local policy**   | Optional `~/.config/gcpctx/policy.toml` or `$GCPCTX_POLICY_PATH`; not org PAM            |
 | `audit.jsonl`                              | **Laptop-local audit**    | `~/.config/gcpctx/audit.jsonl`; append-only, owner-only; not a shared-host control plane |
 
 ### Threats mitigated in v0.2

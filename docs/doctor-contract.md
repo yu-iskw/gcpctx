@@ -34,7 +34,7 @@
 | 3    | Approval required or expired                     |
 | 4    | Policy or credential-surface violation           |
 | 5    | Unsafe filesystem state                          |
-| 6    | gcloud or gcpctx trust failure               |
+| 6    | gcloud or gcpctx trust failure                   |
 | 7    | ADC not initialized                              |
 | 8    | IAM impersonation failure                        |
 | 9    | Config or settings schema error                  |
