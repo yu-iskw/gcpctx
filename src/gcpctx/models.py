@@ -87,6 +87,13 @@ class ApprovalRecord(BaseModel):
     gcloud_sha256: str | None = None
     gcloud_version: str | None = None
     expires_at: str | None = None
+    scope: Literal["shell", "run"] = "shell"
+    gcpctx_launcher_path: str | None = None
+    gcpctx_launcher_sha256: str | None = None
+    gcpctx_python_path: str | None = None
+    gcpctx_python_sha256: str | None = None
+    gcpctx_package_path: str | None = None
+    gcpctx_package_sha256: str | None = None
 
 
 class ApprovalsStore(BaseModel):

@@ -21,6 +21,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gcpctx import paths
+from gcpctx.approvals import find_matching_approval
 from gcpctx.cli import app
 from gcpctx.project_context import resolve_project_context
 
@@ -180,3 +181,16 @@ def test_install_prints_snippet_and_instructions(shell: str, rc_file: str) -> No
     assert "Installed" not in result.stdout
     assert rc_file in result.stderr
     assert "exec $SHELL" in result.stderr
+    assert 'eval "$(gcpctx hook' not in result.stdout
+    assert "eval \"$(" in result.stdout
+    assert "hook --shell " in result.stdout
+
+
+def test_approve_run_grants_run_scope(project_tree: Path) -> None:
+    result = runner.invoke(app, ["approve", "--run", "--cwd", str(project_tree)])
+    assert result.exit_code == 0, result.stderr
+    assert "run-scope" in result.stdout
+    ctx = resolve_project_context(project_tree)
+    record = find_matching_approval(ctx, required_scope="run")
+    assert record is not None
+    assert record.scope == "run"

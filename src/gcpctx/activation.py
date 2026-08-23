@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from gcpctx import audit, gcloud as gcloud_mod
+from gcpctx import audit, gcpctx_trust, gcloud as gcloud_mod
 from gcpctx.approvals import (
     consume_once_approval,
     find_matching_approval,
@@ -102,8 +102,14 @@ def activate(request: ActivationRequest) -> ActivationResult:
 
     ctx_id = ctx.context_id()
     config_dir = ctx.expected_cloudsdk_config()
+    required_scope = "run" if request.run_mode else "shell"
 
-    approval = find_matching_approval(ctx, policy=policy, gcloud_trust=trust)
+    approval = find_matching_approval(
+        ctx,
+        policy=policy,
+        gcloud_trust=trust,
+        required_scope=required_scope,
+    )
     if approval is None:
         approval = prompt_for_approval(
             ctx,
@@ -111,7 +117,10 @@ def activate(request: ActivationRequest) -> ActivationResult:
             interactive=request.interactive,
             policy=policy,
             gcloud_trust=trust,
+            scope=required_scope,
         )
+    if request.run_mode or request.hook_mode:
+        gcpctx_trust.require_gcpctx_match(approval, gcpctx_trust.fingerprint_gcpctx())
 
     warnings, unsets = _gac_policy(request)
     warnings.extend(trust.warnings)

@@ -15,17 +15,21 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 from typer.testing import CliRunner
 
 from gcpctx.activation import activate, child_environ
-from gcpctx.approvals import add_approval
+from gcpctx.approvals import add_approval, load_store, save_store
 from gcpctx.cli import app
 from gcpctx.errors import ConfigNotFoundError
+from gcpctx.exit_codes import ExitCode
 from gcpctx.models import ActivationRequest, ActivationResult
+from gcpctx.paths import user_config_path
 from gcpctx.project_context import resolve_project_context
+from gcpctx.tests.conftest import matching_gcloud_trust
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -87,7 +91,12 @@ def test_run_cli_invokes_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ctx = resolve_project_context(project_tree)
-    add_approval(ctx, mode="remembered")
+    add_approval(
+        ctx,
+        mode="remembered",
+        scope="run",
+        gcloud_trust=matching_gcloud_trust(),
+    )
     captured: dict[str, object] = {}
 
     def fake_run_command(cmd: list[str], env: dict[str, str]) -> int:
@@ -117,7 +126,7 @@ def test_run_mode_unsets_gac(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ctx = resolve_project_context(project_tree)
-    add_approval(ctx, mode="remembered")
+    add_approval(ctx, mode="remembered", scope="run")
     monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(tmp_path / "key.json"))
     result = activate(
         ActivationRequest(
@@ -130,3 +139,110 @@ def test_run_mode_unsets_gac(
     )
     assert result.active is True
     assert "GOOGLE_APPLICATION_CREDENTIALS" in result.unsets
+
+
+def _grant_run(project_tree: Path) -> None:
+    ctx = resolve_project_context(project_tree)
+    add_approval(
+        ctx,
+        mode="remembered",
+        scope="run",
+        gcloud_trust=matching_gcloud_trust(),
+    )
+
+
+def test_run_fails_when_doctor_strict_would_fail(
+    project_tree: Path,
+    fake_gcloud: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fake_gcloud
+    _grant_run(project_tree)
+    policy_path = user_config_path() / "policy.toml"
+    policy_path.write_text("version = 1\n[policy\n", encoding="utf-8")
+    policy_path.chmod(0o600)
+    captured: dict[str, object] = {}
+
+    def fake_run_command(cmd: list[str], env: dict[str, str]) -> int:
+        del cmd, env
+        captured["called"] = True
+        return 0
+
+    monkeypatch.setattr("gcpctx.cli.run_command", fake_run_command)
+    doctor = runner.invoke(app, ["doctor", "--strict", "--cwd", str(project_tree)])
+    result = runner.invoke(app, ["run", "--cwd", str(project_tree), "--", "true"])
+    assert doctor.exit_code == int(ExitCode.POLICY_VIOLATION)
+    assert result.exit_code == int(ExitCode.POLICY_VIOLATION)
+    assert "called" not in captured
+
+
+def test_run_rejects_shell_remember_after_run_ttl(
+    project_tree: Path,
+    fake_gcloud: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fake_gcloud
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered", scope="shell", gcloud_trust=matching_gcloud_trust())
+    add_approval(ctx, mode="remembered", scope="run", gcloud_trust=matching_gcloud_trust())
+    store = load_store()
+    expired = (datetime.now(tz=UTC) - timedelta(hours=9)).isoformat()
+    store.approvals = [
+        record.model_copy(update={"expires_at": expired}) if record.scope == "run" else record
+        for record in store.approvals
+    ]
+    save_store(store)
+    captured: dict[str, object] = {}
+
+    def fake_run_command(cmd: list[str], env: dict[str, str]) -> int:
+        del cmd, env
+        captured["called"] = True
+        return 0
+
+    monkeypatch.setattr("gcpctx.cli.run_command", fake_run_command)
+    result = runner.invoke(app, ["run", "--cwd", str(project_tree), "--", "true"])
+    assert result.exit_code == int(ExitCode.APPROVAL_REQUIRED)
+    assert "called" not in captured
+
+
+def test_gcpctx_trust_mismatch_blocks_run_and_hook(
+    project_tree: Path,
+    fake_gcloud: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fake_gcloud
+    ctx = resolve_project_context(project_tree)
+    add_approval(ctx, mode="remembered", scope="shell", gcloud_trust=matching_gcloud_trust())
+    add_approval(ctx, mode="remembered", scope="run", gcloud_trust=matching_gcloud_trust())
+
+    def _mutate(field: str) -> None:
+        store = load_store()
+        store.approvals = [
+            record.model_copy(update={field: "d" * 64}) for record in store.approvals
+        ]
+        save_store(store)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_command(cmd: list[str], env: dict[str, str]) -> int:
+        del cmd, env
+        captured["called"] = True
+        return 0
+
+    monkeypatch.setattr("gcpctx.cli.run_command", fake_run_command)
+    for field in (
+        "gcpctx_launcher_sha256",
+        "gcpctx_python_sha256",
+        "gcpctx_package_sha256",
+    ):
+        add_approval(ctx, mode="remembered", scope="shell", gcloud_trust=matching_gcloud_trust())
+        add_approval(ctx, mode="remembered", scope="run", gcloud_trust=matching_gcloud_trust())
+        _mutate(field)
+        doctor = runner.invoke(app, ["doctor", "--cwd", str(project_tree)])
+        run_result = runner.invoke(app, ["run", "--cwd", str(project_tree), "--", "true"])
+        hook = runner.invoke(app, ["hook", "--shell", "zsh", "--cwd", str(project_tree)])
+        assert doctor.exit_code == int(ExitCode.GCLOUD_TRUST_FAILURE), field
+        assert run_result.exit_code == int(ExitCode.GCLOUD_TRUST_FAILURE), field
+        assert hook.exit_code == int(ExitCode.GCLOUD_TRUST_FAILURE), field
+        assert "unset GCPCTX_ACTIVE" in hook.stdout or "GCPCTX_ACTIVE" in hook.stdout
+        assert "called" not in captured

@@ -47,3 +47,4 @@ The parent shell is **not** modified. Missing `.gcpctx.toml` is a hard error (ex
 - ADR-0004 (impersonation / ADC refresh)
 - ADR-0005 (approval)
 - ADR-0006 (shell contract; `run` complements hook/activate)
+- ADR-0010 (amends this decision: `run` requires a dedicated 8h run-scope grant and fail-closes on `doctor --strict` against the child environment; a 30-day shell remember does not authorize `run`)

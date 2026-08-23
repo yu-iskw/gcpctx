@@ -54,6 +54,7 @@ from gcpctx.shell import (
     ShellName,
     render_init_for_shell,
     render_shell,
+    resolved_launcher_path,
 )
 
 app = typer.Typer(
@@ -142,13 +143,14 @@ def _emit_init_instructions(rc_file: str) -> None:
     log_stderr(
         f"Add the snippet above to {rc_file} (or redirect stdout: >> {rc_file}). "
         "Check for an existing '# >>> gcpctx hook >>>' block first to avoid duplicates.\n"
-        "Ensure gcpctx is on PATH (pipx / uv tool install, or alias gcpctx='uvx gcpctx').\n"
+        "Hooks call the absolute launcher captured above; re-run gcpctx install after "
+        "moving or upgrading the binary.\n"
         "Reload your shell: exec $SHELL"
     )
 
 
 def _emit_init(shell: ShellName) -> None:
-    sys.stdout.write(render_init_for_shell(shell))
+    sys.stdout.write(render_init_for_shell(shell, launcher=str(resolved_launcher_path())))
     _emit_init_instructions(_INIT_RC[shell])
 
 
@@ -298,14 +300,20 @@ def doctor(
 def approve(
     profile: Annotated[str | None, typer.Option(help="Profile name.")] = None,
     cwd: Annotated[Path | None, typer.Option(help="Working directory.")] = None,
+    run_scope: Annotated[
+        bool,
+        typer.Option("--run", help="Grant run-scope approval (8 hour TTL)."),
+    ] = False,
 ) -> None:
     """Remember approval for the current directory/profile."""
     try:
         ctx = _require_project_context(cwd, profile)
         policy = load_policy()
         trust = resolve_trusted_gcloud(ctx.root, policy=policy, configured_path=ctx.gcloud_path)
-        add_approval(ctx, mode="remembered", policy=policy, gcloud_trust=trust)
-        typer.echo(f"Remembered approval for profile {ctx.profile_name!r} at {ctx.root}")
+        scope = "run" if run_scope else "shell"
+        add_approval(ctx, mode="remembered", policy=policy, gcloud_trust=trust, scope=scope)
+        label = "run-scope" if run_scope else "shell"
+        typer.echo(f"Remembered {label} approval for profile {ctx.profile_name!r} at {ctx.root}")
     except GcpctxError as exc:
         _handle_error(exc)
 
@@ -446,6 +454,19 @@ def run(
             typer.echo("activation failed", err=True)
             raise typer.Exit(code=2)
         env = activation.child_environ(result)
+        doctor = run_doctor(
+            _resolve_cwd(cwd),
+            profile=profile,
+            interactive=False,
+            strict=True,
+            environ=env,
+            skip_gac=allow_google_application_credentials,
+        )
+        if doctor.exit_code != 0:
+            for check in doctor.checks:
+                if check.status == "fail":
+                    log_stderr(f"{check.id}: {check.message}")
+            raise typer.Exit(code=doctor.exit_code)
         raise typer.Exit(code=run_command(cmd, env))
     except GcpctxError as exc:
         _handle_error(exc)

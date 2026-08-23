@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from gcpctx.gcpctx_trust import resolved_launcher_path
+
 if TYPE_CHECKING:
     from gcpctx.models import ActivationResult
 
@@ -82,12 +84,13 @@ def render_shell(result: ActivationResult, shell: ShellName) -> str:
     return _render_activate(result)
 
 
-def zsh_hook_snippet() -> str:
-    """Return zsh hook installation snippet."""
-    return """# >>> gcpctx hook >>>
-_gcpctx_hook() {
-  eval "$(gcpctx hook --shell zsh)"
-}
+def zsh_hook_snippet(launcher: str) -> str:
+    """Return zsh hook installation snippet bound to *launcher*."""
+    quoted = shell_quote(launcher)
+    return f"""# >>> gcpctx hook >>>
+_gcpctx_hook() {{
+  eval "$({quoted} hook --shell zsh)"
+}}
 
 autoload -U add-zsh-hook
 add-zsh-hook chpwd _gcpctx_hook
@@ -95,32 +98,35 @@ _gcpctx_hook
 # <<< gcpctx hook <<<"""
 
 
-def bash_hook_snippet() -> str:
-    """Return bash hook installation snippet."""
-    return """# >>> gcpctx hook >>>
-_gcpctx_hook() {
-  eval "$(gcpctx hook --shell bash)"
-}
+def bash_hook_snippet(launcher: str) -> str:
+    """Return bash hook installation snippet bound to *launcher*."""
+    quoted = shell_quote(launcher)
+    return f"""# >>> gcpctx hook >>>
+_gcpctx_hook() {{
+  eval "$({quoted} hook --shell bash)"
+}}
 
 case ";$PROMPT_COMMAND;" in
   *";_gcpctx_hook;"*) ;;
-  *) PROMPT_COMMAND="_gcpctx_hook${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+  *) PROMPT_COMMAND="_gcpctx_hook${{PROMPT_COMMAND:+;$PROMPT_COMMAND}}" ;;
 esac
 # <<< gcpctx hook <<<"""
 
 
-def shell_switch_wrapper() -> str:
-    """Return shell function wrapper for gcpctx-switch."""
-    return """gcpctx-switch() {
+def shell_switch_wrapper(launcher: str) -> str:
+    """Return shell function wrapper for gcpctx-switch bound to *launcher*."""
+    quoted = shell_quote(launcher)
+    return f"""gcpctx-switch() {{
   if [ -z "$1" ]; then
     echo "usage: gcpctx-switch <profile>" >&2
     return 1
   fi
-  eval "$(gcpctx activate "$1" --shell "${SHELL##*/}")"
-}"""
+  eval "$({quoted} activate "$1" --shell "${{SHELL##*/}}")"
+}}"""
 
 
-def render_init_for_shell(shell: ShellName) -> str:
+def render_init_for_shell(shell: ShellName, *, launcher: str | None = None) -> str:
     """Return hook snippet plus gcpctx-switch wrapper for shell rc files."""
-    hook = zsh_hook_snippet() if shell == "zsh" else bash_hook_snippet()
-    return f"\n{hook}\n{shell_switch_wrapper()}\n"
+    path = launcher if launcher is not None else str(resolved_launcher_path())
+    hook = zsh_hook_snippet(path) if shell == "zsh" else bash_hook_snippet(path)
+    return f"\n{hook}\n{shell_switch_wrapper(path)}\n"

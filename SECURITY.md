@@ -15,15 +15,18 @@ Shell integration targets **bash** and **zsh**.
 | `.gcpctx.toml` in a repository             | **Untrusted**             | Validated strictly; cannot override project identity or credential paths                |
 | `~/.config/gcpctx/` and `~/.cache/gcpctx/` | **Trusted user state**    | Atomic writes, advisory locks, symlink rejection, `0600`/`0700` permissions             |
 | `gcloud` binary                            | **Conditionally trusted** | Resolved path validated; optional per-project pin in `.gcpctx.toml` via `gcpctx config` |
-| `policy.toml`                              | **User/org policy**       | Optional allowlists and strict mode                                                     |
+| `gcpctx` launcher / interpreter / package  | **Pinned on approval**    | Path + SHA-256 triple on schema v2; doctor `gcpctx_trust` (exit 6)                      |
+| `policy.toml`                              | **Laptop-local policy**   | Optional `~/.config/gcpctx/policy.toml` or `$GCPCTX_POLICY_PATH`; not org PAM           |
+| `audit.jsonl`                              | **Laptop-local audit**    | `~/.config/gcpctx/audit.jsonl`; append-only, owner-only; not a shared-host control plane |
 
 ### Threats mitigated in v0.2
 
 - **Project split-brain** — `CLOUDSDK_CORE_PROJECT` is always set from `profile.project`; config cannot override it.
 - **State tampering** — Approvals and context state use atomic replace, `O_NOFOLLOW`, and file locking.
 - **Symlink attacks** — Config and managed state paths reject symlinks on read/write.
-- **PATH hijacking** — gcloud path trust checks (repo-local binary, world-writable parents, optional allowlist).
-- **Stale trust** — Remembered approvals expire (default 30 days) and bind gcloud path/fingerprint in strict mode.
+- **PATH hijacking** — gcloud path trust checks (repo-local binary, world-writable parents, optional allowlist); gcpctx launcher/interpreter/package pins on approval.
+- **Stale trust** — Remembered shell approvals expire (default 30 days). `gcpctx run` requires a dedicated 8-hour run-scope grant; a 30-day shell remember does not authorize `run`.
+- **Same-user agents** — Not a security boundary. CLOUDSDK isolation only keeps `~/.config/gcloud` clean.
 - **False credential readiness** — Shell hooks do not export credential surface unless ADC is initialized (when policy requires it).
 
 ### Out of scope
@@ -39,6 +42,7 @@ For any activated process, gcpctx guarantees that effective gcloud project, ADC 
 | Project / impersonation     | `activation.py`, `config.py` | `gcloud_project`, `impersonation`, `env_project` |
 | Isolated `CLOUDSDK_CONFIG`  | ADR-0003, `paths.py`         | `ambient_cloudsdk`, `expected_context`           |
 | gcloud binary trust         | `gcloud_trust.py`            | `gcloud_trust`                                   |
+| gcpctx identity pin         | `gcpctx_trust.py`            | `gcpctx_trust`                                   |
 | Approval + expiry           | `approvals.py`               | `approval`, `approval_expiry`                    |
 | ADC readiness               | `gcloud.py`                  | `adc`                                            |
 | IAM impersonation (strict)  | `doctor.py`                  | `impersonation_iam`                              |
@@ -66,7 +70,9 @@ Non-zero exit indicates an actionable security finding. JSON includes stable che
 
 ## Policy file
 
-Optional `~/.config/gcpctx/policy.toml` or `$GCPCTX_POLICY_PATH` enables org-style constraints (project allowlists, approval TTL, strict hook ADC requirement). See README for schema.
+`~/.config/gcpctx/policy.toml` and `~/.config/gcpctx/audit.jsonl` are **laptop-local**. They are not org PAM, not a shared-host control plane, and not a remote revoke channel. Optional `$GCPCTX_POLICY_PATH` still points at a file this user can write.
+
+Optional `policy.toml` enables allowlists, approval TTL (shell remember only), and strict hook ADC requirement. See README for schema.
 
 ## Reporting a vulnerability
 

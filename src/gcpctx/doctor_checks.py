@@ -55,6 +55,11 @@ DOCTOR_CHECK_REGISTRY: dict[str, DoctorCheckSpec] = {
         "docs/checks/gcloud_trust.md",
         'gcpctx config "$(which gcloud)"',
     ),
+    "gcpctx_trust": DoctorCheckSpec(
+        ExitCode.GCLOUD_TRUST_FAILURE,
+        "docs/checks/gcpctx_trust.md",
+        "gcpctx approve",
+    ),
     "approval": DoctorCheckSpec(
         ExitCode.APPROVAL_REQUIRED,
         "docs/checks/approval.md",

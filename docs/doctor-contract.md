@@ -34,7 +34,7 @@
 | 3    | Approval required or expired                     |
 | 4    | Policy or credential-surface violation           |
 | 5    | Unsafe filesystem state                          |
-| 6    | gcloud trust failure                             |
+| 6    | gcloud or gcpctx trust failure               |
 | 7    | ADC not initialized                              |
 | 8    | IAM impersonation failure                        |
 | 9    | Config or settings schema error                  |
@@ -51,6 +51,7 @@ Doctor uses `max(exit_code)` across failing checks.
 | `policy`            | 4                                                   | no          |
 | `settings`          | 1 (warn-only; does not fail non-interactive doctor) | no          |
 | `gcloud_trust`      | 6                                                   | no          |
+| `gcpctx_trust`      | 6                                                   | no          |
 | `approval`          | 3                                                   | no          |
 | `approval_expiry`   | 3                                                   | no          |
 | `expected_context`  | 2                                                   | no          |
