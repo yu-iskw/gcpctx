@@ -57,9 +57,7 @@ def test_record_verify_detects_swapped_package_file(tmp_path: Path) -> None:
     init = package / "__init__.py"
     original = b"original-module\n"
     init.write_bytes(original)
-    record = (
-        f"gcpctx/__init__.py,{_urlsafe_sha256(original)},{len(original)}\nRECORD,,\n"
-    )
+    record = f"gcpctx/__init__.py,{_urlsafe_sha256(original)},{len(original)}\nRECORD,,\n"
     (tmp_path / "RECORD").write_text(record, encoding="utf-8")
     result = fingerprint_gcpctx(
         argv0=str(launcher),

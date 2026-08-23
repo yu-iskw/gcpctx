@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from gcpctx import audit, gcpctx_trust, gcloud as gcloud_mod
+from gcpctx import audit, gcloud as gcloud_mod, gcpctx_trust
 from gcpctx.approvals import (
     consume_once_approval,
     find_matching_approval,
@@ -32,6 +32,8 @@ from gcpctx.project_context import ResolvedProjectContext, resolve_project_conte
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from gcpctx.models import ApprovalRecord
 
 
 def missing_config_result() -> ActivationResult:
@@ -84,6 +86,14 @@ def _gac_policy(request: ActivationRequest) -> tuple[list[str], list[str]]:
     return [warning], unsets
 
 
+def _require_gcpctx_pin_for_run_or_hook(
+    request: ActivationRequest,
+    approval: ApprovalRecord,
+) -> None:
+    if request.run_mode or request.hook_mode:
+        gcpctx_trust.require_gcpctx_match(approval, gcpctx_trust.fingerprint_gcpctx())
+
+
 def activate(request: ActivationRequest) -> ActivationResult:
     """Activate gcpctx for the given request."""
     policy = load_policy()
@@ -113,14 +123,12 @@ def activate(request: ActivationRequest) -> ActivationResult:
     if approval is None:
         approval = prompt_for_approval(
             ctx,
-            cloudsdk_config=config_dir,
             interactive=request.interactive,
             policy=policy,
             gcloud_trust=trust,
             scope=required_scope,
         )
-    if request.run_mode or request.hook_mode:
-        gcpctx_trust.require_gcpctx_match(approval, gcpctx_trust.fingerprint_gcpctx())
+    _require_gcpctx_pin_for_run_or_hook(request, approval)
 
     warnings, unsets = _gac_policy(request)
     warnings.extend(trust.warnings)

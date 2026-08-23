@@ -26,8 +26,8 @@ The parent shell is **not** modified. Missing `.gcpctx.toml` is a hard error (ex
 
 ## Consequences
 
-- Agents can be launched with `gcpctx run -- claude` after `gcpctx approve`.
-- Non-interactive run requires pre-approval (fail-closed, exit 3).
+- Agents can be launched with `gcpctx run -- claude` after `gcpctx approve --run` (ADR-0010). A 30-day shell remember from plain `gcpctx approve` does not authorize `run`.
+- Non-interactive run requires an unexpired run-scope grant (fail-closed, exit 3) and then fail-closes on `doctor --strict` against the child environment.
 - Unix-first; Windows parity deferred.
 
 ## Alternatives considered

@@ -21,13 +21,13 @@ from typing import TYPE_CHECKING
 import pytest
 from typer.testing import CliRunner
 
+from gcpctx import paths
 from gcpctx.activation import activate, child_environ
 from gcpctx.approvals import add_approval, load_store, save_store
 from gcpctx.cli import app
 from gcpctx.errors import ConfigNotFoundError
 from gcpctx.exit_codes import ExitCode
 from gcpctx.models import ActivationRequest, ActivationResult
-from gcpctx.paths import user_config_path
 from gcpctx.project_context import resolve_project_context
 from gcpctx.tests.conftest import matching_gcloud_trust
 
@@ -85,7 +85,7 @@ def test_run_no_approval_non_interactive(project_tree: Path) -> None:
     assert "approval required" in result.stderr.lower()
 
 
-def test_run_cli_invokes_command(
+def test_run_happy_path_with_run_scope(
     project_tree: Path,
     fake_gcloud: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -158,7 +158,7 @@ def test_run_fails_when_doctor_strict_would_fail(
 ) -> None:
     del fake_gcloud
     _grant_run(project_tree)
-    policy_path = user_config_path() / "policy.toml"
+    policy_path = paths.user_config_path() / "policy.toml"
     policy_path.write_text("version = 1\n[policy\n", encoding="utf-8")
     policy_path.chmod(0o600)
     captured: dict[str, object] = {}
@@ -230,6 +230,10 @@ def test_gcpctx_trust_mismatch_blocks_run_and_hook(
         return 0
 
     monkeypatch.setattr("gcpctx.cli.run_command", fake_run_command)
+    isolated = ctx.expected_cloudsdk_config()
+    isolated.mkdir(parents=True)
+    (isolated / "application_default_credentials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(isolated))
     for field in (
         "gcpctx_launcher_sha256",
         "gcpctx_python_sha256",

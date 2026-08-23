@@ -24,8 +24,7 @@ from pathlib import Path
 from gcpctx.config import load_project_config
 from gcpctx.discovery import find_project_root
 from gcpctx.errors import GcloudNotFoundError, GcloudTrustError
-from gcpctx.fingerprint import clear_fingerprint_cache as _clear_file_cache
-from gcpctx.fingerprint import fingerprint_file
+from gcpctx.fingerprint import clear_fingerprint_cache as _clear_file_cache, fingerprint_file
 from gcpctx.policy import SecurityPolicy, load_policy, matches_allowlist
 
 

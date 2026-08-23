@@ -58,13 +58,13 @@ def test_render_noop() -> None:
     assert render_shell(result, "bash") == ""
 
 
-def test_init_snippet_uses_absolute_launcher() -> None:
+def test_install_snippet_uses_absolute_launcher() -> None:
     launcher = "/opt/tools/gcpctx"
     zsh = render_init_for_shell("zsh", launcher=launcher)
     bash = render_init_for_shell("bash", launcher=launcher)
     quoted = shell_quote(launcher)
-    assert f"eval \"$({quoted} hook --shell zsh)\"" in zsh
-    assert f"eval \"$({quoted} hook --shell bash)\"" in bash
+    assert f'eval "$({quoted} hook --shell zsh)"' in zsh
+    assert f'eval "$({quoted} hook --shell bash)"' in bash
     assert 'eval "$(gcpctx hook' not in zsh
     assert 'eval "$(gcpctx hook' not in bash
-    assert f"eval \"$({quoted} activate" in zsh
+    assert f'eval "$({quoted} activate' in zsh

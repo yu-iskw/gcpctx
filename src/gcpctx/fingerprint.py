@@ -24,15 +24,12 @@ _FINGERPRINT_CACHE: dict[str, tuple[int, int, str]] = {}
 def fingerprint_file(path: str) -> str | None:
     """Return SHA-256 hex digest of *path*, if readable."""
     resolved = Path(path)
+    cache_key = str(resolved)
     try:
         stat_result = resolved.stat()
-    except OSError:
-        return None
-    cache_key = str(resolved)
-    cached = _FINGERPRINT_CACHE.get(cache_key)
-    if cached and cached[0] == stat_result.st_size and cached[1] == stat_result.st_mtime_ns:
-        return cached[2]
-    try:
+        cached = _FINGERPRINT_CACHE.get(cache_key)
+        if cached and cached[0] == stat_result.st_size and cached[1] == stat_result.st_mtime_ns:
+            return cached[2]
         data = resolved.read_bytes()
     except OSError:
         return None

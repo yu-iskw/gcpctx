@@ -17,12 +17,11 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from gcpctx import __version__, audit, gcpctx_trust, gcloud as gcloud_mod, paths
+from gcpctx import __version__, audit, gcloud as gcloud_mod, gcpctx_trust, paths
 from gcpctx.approvals import (
     ApprovalDoctorState,
     approval_evidence_id,
@@ -45,9 +44,20 @@ from gcpctx.project_context import ResolvedProjectContext, resolve_project_conte
 from gcpctx.security import check_path_permissions, reject_symlink
 from gcpctx.settings import deprecated_global_gcloud_path
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 CheckStatus = Literal["ok", "warning", "error"]
 _STATUS_RANK = {"ok": 0, "warning": 1, "error": 2}
 _WARN_ONLY_CHECK_IDS = frozenset({"settings"})
+
+
+@dataclass(frozen=True, slots=True)
+class DoctorProcessEnv:
+    """Optional child-process environment overlay for doctor (used by ``gcpctx run``)."""
+
+    values: Mapping[str, str]
+    skip_gac: bool = False
 
 
 @dataclass
@@ -607,11 +617,12 @@ def run_doctor(  # noqa: PLR0911, PLR0912
     profile: str | None = None,
     interactive: bool | None = None,
     strict: bool = False,
-    environ: Mapping[str, str] | None = None,
-    skip_gac: bool = False,
+    process_env: DoctorProcessEnv | None = None,
 ) -> DoctorResult:
     """Run diagnostic checks and return aggregated result."""
-    env = os.environ if environ is None else environ
+    overlay = process_env
+    env = os.environ if overlay is None else overlay.values
+    skip_gac = False if overlay is None else overlay.skip_gac
     is_interactive = sys.stdin.isatty() if interactive is None else interactive
     try:
         policy = load_policy()

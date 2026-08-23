@@ -182,7 +182,7 @@ def test_install_prints_snippet_and_instructions(shell: str, rc_file: str) -> No
     assert rc_file in result.stderr
     assert "exec $SHELL" in result.stderr
     assert 'eval "$(gcpctx hook' not in result.stdout
-    assert "eval \"$(" in result.stdout
+    assert 'eval "$(' in result.stdout
     assert "hook --shell " in result.stdout
 
 

@@ -22,8 +22,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from gcpctx.gcloud_trust import GcloudTrustResult
-from gcpctx.gcpctx_trust import GcpctxTrustResult
-from gcpctx.gcpctx_trust import fingerprint_gcpctx as _real_fingerprint_gcpctx
+from gcpctx.gcpctx_trust import GcpctxTrustResult, fingerprint_gcpctx as _real_fingerprint_gcpctx
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -146,7 +145,7 @@ if "application-default" in sys.argv and "login" in sys.argv:
     if config:
         os.makedirs(config, exist_ok=True)
         with open(os.path.join(config, "application_default_credentials.json"), "w") as adc:
-            adc.write("{}")
+            adc.write("{{}}")
     sys.exit(0)
 sys.exit(0)
 """,

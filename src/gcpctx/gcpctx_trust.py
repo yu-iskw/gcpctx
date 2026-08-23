@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from gcpctx.models import ApprovalRecord
 
 _PACKAGE_NAME = "gcpctx"
+_RECORD_FIELD_COUNT = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +75,7 @@ def _urlsafe_sha256(data: bytes) -> str:
 def _record_has_package_files(record_text: str) -> bool:
     for line in record_text.splitlines():
         parts = line.rsplit(",", 2)
-        if len(parts) != 3 or not parts[1].startswith("sha256="):
+        if len(parts) != _RECORD_FIELD_COUNT or not parts[1].startswith("sha256="):
             continue
         rel = parts[0]
         if rel == f"{_PACKAGE_NAME}/__init__.py" or rel.startswith(f"{_PACKAGE_NAME}/"):
@@ -87,7 +88,7 @@ def _verify_record_files(root: Path, record_text: str) -> None:
         if not line.strip():
             continue
         parts = line.rsplit(",", 2)
-        if len(parts) != 3 or not parts[1]:
+        if len(parts) != _RECORD_FIELD_COUNT or not parts[1]:
             continue
         rel, hash_spec, _size = parts
         path = root / rel
@@ -156,13 +157,13 @@ def _package_identity(
 ) -> tuple[str, str]:
     if record_text is not None and record_root is not None:
         return _injected_record_identity(record_text, Path(record_root))
-    if package_origin is not None:
-        return _origin_package_identity(Path(package_origin))
-    installed = _installed_record_identity()
-    if installed is not None:
-        return installed
-    origin = Path(__file__).resolve().parent / "__init__.py"
-    return _origin_package_identity(origin)
+    origin_path = Path(package_origin) if package_origin is not None else None
+    if origin_path is None:
+        installed = _installed_record_identity()
+        if installed is not None:
+            return installed
+        origin_path = Path(__file__).resolve().parent / "__init__.py"
+    return _origin_package_identity(origin_path)
 
 
 def fingerprint_gcpctx(
@@ -235,14 +236,15 @@ def gcpctx_pin_mismatch_reason(
             live.package_sha256,
         ),
     )
+    mismatches: list[str] = []
     for name, stored_path, stored_hash, live_path, live_hash in legs:
         if stored_path is None or stored_hash is None or live_hash is None:
-            return f"{name}_missing"
-        if stored_path != live_path:
-            return f"{name}_path"
-        if stored_hash != live_hash:
-            return f"{name}_sha256"
-    return None
+            mismatches.append(f"{name}_missing")
+        elif stored_path != live_path:
+            mismatches.append(f"{name}_path")
+        elif stored_hash != live_hash:
+            mismatches.append(f"{name}_sha256")
+    return mismatches[0] if mismatches else None
 
 
 def gcpctx_pins_match(record: ApprovalRecord, live: GcpctxTrustResult) -> bool:

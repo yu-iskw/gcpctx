@@ -35,7 +35,7 @@ from gcpctx.config import (
     validate_init_project_inputs,
 )
 from gcpctx.discovery import config_path, find_project_root
-from gcpctx.doctor import run_doctor, status_info
+from gcpctx.doctor import DoctorProcessEnv, run_doctor, status_info
 from gcpctx.errors import (
     ConfigNotFoundError,
     ConfigValidationError,
@@ -45,7 +45,7 @@ from gcpctx.errors import (
 from gcpctx.exit_codes import ExitCode
 from gcpctx.gcloud_trust import resolve_trusted_gcloud
 from gcpctx.logging import log_stderr
-from gcpctx.models import ActivationRequest, ActivationResult
+from gcpctx.models import ActivationRequest, ActivationResult, DoctorResult
 from gcpctx.policy import load_policy
 from gcpctx.project_context import ResolvedProjectContext, resolve_project_context
 from gcpctx.runner import run_command
@@ -414,6 +414,29 @@ def clean(  # noqa: PLR0912
         _handle_error(exc)
 
 
+def _run_argv(args: list[str]) -> list[str]:
+    usage = "usage: gcpctx run [--profile NAME] -- COMMAND [ARGS...]"
+    if not args:
+        typer.echo(usage, err=True)
+        raise typer.Exit(code=2)
+    cmd = list(args)
+    if cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        typer.echo(usage, err=True)
+        raise typer.Exit(code=2)
+    return cmd
+
+
+def _exit_if_doctor_failed(doctor: DoctorResult) -> None:
+    if doctor.exit_code == 0:
+        return
+    for check in doctor.checks:
+        if check.status == "fail":
+            log_stderr(f"{check.id}: {check.message}")
+    raise typer.Exit(code=doctor.exit_code)
+
+
 @app.command(context_settings={"allow_extra_args": True})
 def run(
     ctx: typer.Context,
@@ -429,15 +452,7 @@ def run(
     ] = False,
 ) -> None:
     """Run a command with per-project credentials (parent shell unchanged)."""
-    if not ctx.args:
-        typer.echo("usage: gcpctx run [--profile NAME] -- COMMAND [ARGS...]", err=True)
-        raise typer.Exit(code=2)
-    cmd = list(ctx.args)
-    if cmd[0] == "--":
-        cmd = cmd[1:]
-    if not cmd:
-        typer.echo("usage: gcpctx run [--profile NAME] -- COMMAND [ARGS...]", err=True)
-        raise typer.Exit(code=2)
+    cmd = _run_argv(list(ctx.args))
     try:
         result = _run_activation(
             ActivationRequest(
@@ -459,14 +474,12 @@ def run(
             profile=profile,
             interactive=False,
             strict=True,
-            environ=env,
-            skip_gac=allow_google_application_credentials,
+            process_env=DoctorProcessEnv(
+                values=env,
+                skip_gac=allow_google_application_credentials,
+            ),
         )
-        if doctor.exit_code != 0:
-            for check in doctor.checks:
-                if check.status == "fail":
-                    log_stderr(f"{check.id}: {check.message}")
-            raise typer.Exit(code=doctor.exit_code)
+        _exit_if_doctor_failed(doctor)
         raise typer.Exit(code=run_command(cmd, env))
     except GcpctxError as exc:
         _handle_error(exc)
