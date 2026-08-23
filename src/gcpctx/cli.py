@@ -428,13 +428,13 @@ def _run_argv(args: list[str]) -> list[str]:
     return cmd
 
 
-def _exit_if_doctor_failed(doctor: DoctorResult) -> None:
-    if doctor.exit_code == 0:
+def _exit_if_doctor_failed(doctor_result: DoctorResult) -> None:
+    if doctor_result.exit_code == 0:
         return
-    for check in doctor.checks:
+    for check in doctor_result.checks:
         if check.status == "fail":
             log_stderr(f"{check.id}: {check.message}")
-    raise typer.Exit(code=doctor.exit_code)
+    raise typer.Exit(code=doctor_result.exit_code)
 
 
 @app.command(context_settings={"allow_extra_args": True})
@@ -469,7 +469,7 @@ def run(
             typer.echo("activation failed", err=True)
             raise typer.Exit(code=2)
         env = activation.child_environ(result)
-        doctor = run_doctor(
+        doctor_result = run_doctor(
             _resolve_cwd(cwd),
             profile=profile,
             interactive=False,
@@ -479,7 +479,7 @@ def run(
                 skip_gac=allow_google_application_credentials,
             ),
         )
-        _exit_if_doctor_failed(doctor)
+        _exit_if_doctor_failed(doctor_result)
         raise typer.Exit(code=run_command(cmd, env))
     except GcpctxError as exc:
         _handle_error(exc)

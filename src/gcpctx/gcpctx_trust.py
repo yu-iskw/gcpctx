@@ -90,7 +90,8 @@ def _verify_record_files(root: Path, record_text: str) -> None:
         parts = line.rsplit(",", 2)
         if len(parts) != _RECORD_FIELD_COUNT or not parts[1]:
             continue
-        rel, hash_spec, _size = parts
+        rel = parts[0]
+        hash_spec = parts[1]
         path = root / rel
         try:
             data = path.read_bytes()
